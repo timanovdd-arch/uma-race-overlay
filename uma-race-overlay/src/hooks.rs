@@ -67,6 +67,9 @@ struct StatApi {
     // Аптитуд для ФАКТИЧЕСКОЙ поверхности/дистанции этой гонки (игра считает сама).
     get_ActiveProperGroundType: Option<FnThisI32>,
     get_ActiveProperDistance: Option<FnThisI32>,
+    /// «Эта лошадь принадлежит локальному игроку» — стабильный признак «своих»,
+    /// не зависит от ника тренера. Главный сигнал для фильтра свои/чужие.
+    get_IsUser: Option<FnThisBool>,
 }
 
 unsafe impl Send for RaceApi {}
@@ -145,9 +148,11 @@ unsafe extern "C" fn ctor_hook(this: RawPtr, data: RawPtr, reader: RawPtr) {
     } else {
         0
     };
+    // Стабильный признак «моя лошадь» — прямо от игры, не зависит от ника.
+    let is_user = api.stats.get_IsUser.map(|f| f(data)).unwrap_or(false);
     logf!(
-        "  scout: turf {} dirt {} motiv {} pop {} skills {} aGround {} aDist {} gtype {} ids {:?}",
-        apt_turf, apt_dirt, motivation, popularity, skills.len(),
+        "  scout: isUser {} turf {} dirt {} motiv {} pop {} skills {} aGround {} aDist {} gtype {} ids {:?}",
+        is_user, apt_turf, apt_dirt, motivation, popularity, skills.len(),
         active_ground_apt, active_dist_apt, ground_type,
         skills.iter().map(|s| s.0).collect::<Vec<_>>()
     );
@@ -199,6 +204,7 @@ unsafe extern "C" fn ctor_hook(this: RawPtr, data: RawPtr, reader: RawPtr) {
     horse.active_ground_apt = active_ground_apt;
     horse.active_dist_apt = active_dist_apt;
     horse.ground_type = ground_type;
+    horse.is_user = is_user;
     horse.motivation = motivation;
     horse.popularity = popularity;
     horse.skills = skills;
@@ -309,6 +315,8 @@ fn resolve_api() -> Option<(RaceApi, RawPtr, RawPtr)> {
             }),
         get_ActiveProperGroundType: mopt!(horse_data_klass, "get_ActiveProperGroundType"),
         get_ActiveProperDistance: mopt!(horse_data_klass, "get_ActiveProperDistance"),
+        get_IsUser: il2cpp::find_method(horse_data_klass, "get_IsUser", 0)
+            .map(|m| unsafe { std::mem::transmute::<RawPtr, FnThisBool>(il2cpp::method_pointer(m)) }),
     };
     if stats.get_Speed.is_none()
         || stats.get_Stamina.is_none()

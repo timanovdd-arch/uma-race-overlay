@@ -44,6 +44,8 @@ pub struct HorseState {
     pub active_dist_apt: i32,
     /// Тип трассы: 1 турф, 2 грунт, 0 неизвестно.
     pub ground_type: i32,
+    /// «Моя лошадь» (get_IsUser) — стабильный признак своих, не зависит от ника.
+    pub is_user: bool,
     /// Мотивация (やる気): 1..5, 5 — лучшая. -1 = неизвестно.
     pub motivation: i32,
     /// Популярность игры (фаворитизм): меньше = фаворит. -1 = неизвестно.
@@ -85,6 +87,7 @@ impl HorseState {
             active_ground_apt: -1,
             active_dist_apt: -1,
             ground_type: 0,
+            is_user: false,
             motivation: -1,
             popularity: -1,
             skills: Vec::new(),

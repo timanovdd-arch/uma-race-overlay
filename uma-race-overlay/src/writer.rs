@@ -67,7 +67,7 @@ fn build_json() -> String {
         skills_json.push(']');
 
         s.push_str(&format!(
-            "{{\"gate\":{},\"name\":\"{}\",\"trainer\":\"{}\",\"hp\":{:.1},\"max_hp\":{:.1},\"speed\":{:.2},\"accel\":{:.3},\"max_spurt_accel\":{:.3},\"distance\":{:.1},\"spurt\":{},\"finished\":{},\"order\":{},\"style\":{},\"stats\":[{},{},{},{},{}],\"apt\":[{},{},{},{},{}],\"ground\":[{},{}],\"adist\":{},\"aground\":{},\"gtype\":{},\"motiv\":{},\"pop\":{},\"skills\":{}}}",
+            "{{\"gate\":{},\"name\":\"{}\",\"trainer\":\"{}\",\"hp\":{:.1},\"max_hp\":{:.1},\"speed\":{:.2},\"accel\":{:.3},\"max_spurt_accel\":{:.3},\"distance\":{:.1},\"spurt\":{},\"finished\":{},\"order\":{},\"style\":{},\"stats\":[{},{},{},{},{}],\"apt\":[{},{},{},{},{}],\"ground\":[{},{}],\"adist\":{},\"aground\":{},\"gtype\":{},\"is_user\":{},\"motiv\":{},\"pop\":{},\"skills\":{}}}",
             h.gate_no,
             json_escape(&h.chara_name),
             json_escape(&h.trainer_name),
@@ -98,6 +98,7 @@ fn build_json() -> String {
             h.active_dist_apt,
             h.active_ground_apt,
             h.ground_type,
+            h.is_user,
             h.motivation,
             h.popularity,
             skills_json,

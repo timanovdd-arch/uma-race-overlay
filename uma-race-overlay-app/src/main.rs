@@ -62,6 +62,9 @@ struct Horse {
     /// Тип трассы: 1 турф, 2 грунт, 0 неизвестно.
     #[serde(default)]
     gtype: i32,
+    /// «Моя лошадь» от игры (get_IsUser) — стабильный признак своих.
+    #[serde(default)]
+    is_user: bool,
     /// Мотивация 1..5 (3 = норма), -1 = неизвестна.
     #[serde(default = "neg1")]
     motiv: i32,
@@ -385,9 +388,13 @@ impl App {
         }
     }
 
-    /// Лошадь «моя», если её тренер совпадает с известным именем игрока.
-    /// Пока имя не определено — своих нет (фильтр не применяется).
+    /// Лошадь «моя». Приоритет — СТАБИЛЬНЫЙ флаг is_user от игры (не зависит от
+    /// ника, работает у любого юзера без настройки). Если плагин его не отдаёт
+    /// (старая версия / нет ни одного is_user) — фолбэк по имени тренера.
     fn is_mine(&self, h: &Horse) -> bool {
+        if self.snapshot.horses.iter().any(|x| x.is_user) {
+            return h.is_user;
+        }
         !self.my_trainer.is_empty() && h.trainer == self.my_trainer
     }
 
@@ -629,10 +636,19 @@ impl EguiOverlay for App {
             compute_win_chances(&mut horses);
             self.apply_sim(&mut horses);
 
-            // Автоопределение своего тренера: у NPC тренер пустой, поэтому
-            // в одиночных забегах ровно один непустой тренер — это игрок.
-            // Запоминаем навсегда (к PvP имя уже будет известно).
-            if self.my_trainer.is_empty() {
+            // Имя своего тренера (для подписи/подсветки). СТАБИЛЬНО берём у
+            // лошади с флагом is_user от игры (работает и в PvP, без ручного
+            // выбора). Фолбэк: единственный непустой тренер (одиночный забег).
+            if let Some(t) = horses
+                .iter()
+                .find(|h| h.is_user && !h.trainer.is_empty())
+                .map(|h| h.trainer.clone())
+            {
+                if self.my_trainer != t {
+                    self.my_trainer = t;
+                    self.save_cfg();
+                }
+            } else if self.my_trainer.is_empty() {
                 let mut named: Vec<&str> = horses
                     .iter()
                     .map(|h| h.trainer.as_str())
@@ -1138,8 +1154,9 @@ fn race_table(
 
             for h in horses.iter() {
                 ui.label(format!("{}", h.rank));
-                // Свои лошади подсвечены голубым, чтобы отличать от соперников.
-                if !my_trainer.is_empty() && h.trainer == my_trainer {
+                // Свои лошади подсвечены голубым (по флагу is_user от игры, иначе
+                // по имени тренера).
+                if h.is_user || (!my_trainer.is_empty() && h.trainer == my_trainer) {
                     ui.label(
                         RichText::new(horse_label(h)).color(Color32::from_rgb(120, 200, 255)),
                     );
