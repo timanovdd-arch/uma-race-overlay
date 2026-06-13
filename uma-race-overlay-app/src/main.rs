@@ -321,6 +321,10 @@ struct App {
     win_pos: Option<egui::Pos2>,
     /// Троттлинг записи cfg при перетаскивании окна.
     last_pos_save: Instant,
+    /// «Замороженный» снимок последней гонки (лошади с рангами/win% + был ли
+    /// это до старта). Показывается после финиша, пока не началась новая гонка,
+    /// чтобы показатели не исчезали.
+    frozen: Option<(Vec<Horse>, bool)>,
     /// Донат-окно при запуске (показывается один раз, до начала работы).
     donation_open: bool,
     /// Текстура QR-кода (грузится лениво из donat.png рядом с exe).
@@ -363,6 +367,7 @@ impl App {
                 None
             },
             last_pos_save: Instant::now(),
+            frozen: None,
             donation_open: true,
             qr_tex: None,
             qr_tried: false,
@@ -461,6 +466,13 @@ impl App {
             && !self.snapshot.horses.is_empty()
             && now_ms().saturating_sub(self.snapshot.ts) < 3000
             && self.snapshot.ctor_age_ms < 90_000
+            // Только ДО старта: никто ещё не побежал и не финишировал. После
+            // финиша это уже не «pre-race», а итог (показывается «заморозкой»).
+            && self
+                .snapshot
+                .horses
+                .iter()
+                .all(|h| !h.finished && h.distance < 5.0)
     }
 
     /// Заменяет эвристический win_chance результатом Monte Carlo симуляции
@@ -680,37 +692,46 @@ impl EguiOverlay for App {
                 h.rank = rank_of.get(&h.gate).copied().unwrap_or(0);
             }
 
+            // Запоминаем «замороженный» снимок гонки (с рангами и win%), чтобы
+            // после финиша показатели НЕ исчезали, а оставались как итог до
+            // начала следующей гонки.
+            self.frozen = Some((horses, pre_race));
+        }
+
+        // Источник отображения: живая гонка → свежие данные; гонки нет, но есть
+        // прошлая → её «замороженный» итог. Сортировку/фильтр применяем ЗДЕСЬ,
+        // чтобы переключатели (соперники/сортировка) работали и на итогах.
+        let (mut horses, disp_pre_race, is_frozen) = match (self.frozen.clone(), active) {
+            (Some((h, p)), true) => (h, p, false),
+            (Some((h, p)), false) => (h, p, true),
+            (None, _) => (Vec::new(), false, false),
+        };
+        if !horses.is_empty() {
+            let order_cmp: fn(&Horse, &Horse) -> std::cmp::Ordering =
+                if disp_pre_race { chance_cmp } else { rank_cmp };
             if self.sort_by_rank {
                 horses.sort_by(order_cmp);
             } else {
                 horses.sort_by_key(|h| h.gate);
             }
-            // «Свои сверху»: стабильная сортировка сохраняет порядок по
-            // позиции внутри каждой группы (мои, затем соперники).
+            // «Свои сверху»: стабильная сортировка сохраняет порядок внутри групп.
             if self.mine_first {
                 horses.sort_by_key(|h| !self.is_mine(h));
             }
-
-            // По дефолту — только свои лошади; чужие включаются кнопкой/F6.
-            // Пока тренер не определён или своих в гонке нет — показываем
-            // всех, чтобы таблица не оказалась пустой.
+            // По дефолту — только свои; чужие включаются кнопкой/F6.
             if !self.show_enemies {
-                let mine: Vec<Horse> = horses
-                    .iter()
-                    .filter(|h| self.is_mine(h))
-                    .cloned()
-                    .collect();
+                let mine: Vec<Horse> =
+                    horses.iter().filter(|h| self.is_mine(h)).cloned().collect();
                 if !mine.is_empty() {
                     horses = mine;
                 }
             }
         }
 
-        // Окно показываем всегда, пока оверлей видим: в гонке — таблицу, вне
-        // гонки — компактную заглушку (чтобы можно было поставить окно на нужный
-        // монитор заранее и видеть, что оверлей запущен).
+        // Окно показываем всегда, пока оверлей видим: гонка/итоги — таблица,
+        // иначе — заглушка «waiting».
         if self.visible {
-            self.show_main_window(egui_context, &horses, pre_race, active);
+            self.show_main_window(egui_context, &horses, disp_pre_race, is_frozen);
         }
         if self.chance_disclaimer_open {
             self.show_chance_disclaimer(egui_context);
@@ -727,7 +748,9 @@ impl EguiOverlay for App {
 }
 
 impl App {
-    fn show_main_window(&mut self, ctx: &egui::Context, horses: &[Horse], pre_race: bool, active: bool) {
+    fn show_main_window(&mut self, ctx: &egui::Context, horses: &[Horse], pre_race: bool, frozen: bool) {
+        // Итог завершённой гонки (для метки): данные есть и кто-то финишировал.
+        let finished = frozen && horses.iter().any(|h| h.finished);
         // Позицию окна восстанавливаем из cfg (или дефолт), а после показа
         // запоминаем — чтобы перетаскивание на другой монитор сохранялось.
         let start_pos = self.win_pos.unwrap_or(egui::pos2(40.0, 90.0));
@@ -735,7 +758,7 @@ impl App {
             .default_size([620.0, 470.0])
             .default_pos(start_pos)
             .show(ctx, |ui| {
-                if !active {
+                if horses.is_empty() {
                     // Вне гонки — заметная заглушка, окно можно таскать.
                     ui.add_space(6.0);
                     ui.label(RichText::new("Uma Race Overlay").size(20.0).strong());
@@ -765,7 +788,16 @@ impl App {
                 }
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Umamusume PvP — HP / Speed").strong());
-                    if pre_race {
+                    if finished {
+                        ui.label(
+                            RichText::new("● FINISHED — final results")
+                                .color(Color32::from_rgb(120, 230, 140))
+                                .small(),
+                        )
+                        .on_hover_text("Last race results. Updates when the next race starts.");
+                    } else if frozen {
+                        ui.label(RichText::new("last race").weak().small());
+                    } else if pre_race {
                         ui.label(
                             RichText::new("pre-race")
                                 .color(Color32::from_rgb(255, 200, 80))
