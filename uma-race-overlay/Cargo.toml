@@ -1,0 +1,14 @@
+[package]
+name = "uma_race_overlay"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+minhook = "0.9"
+
+[profile.release]
+opt-level = 2
+lto = true

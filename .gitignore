@@ -1,0 +1,27 @@
+# ── Rust build output (генерируется) ──
+/target/
+**/target/
+
+# ── Проприетарные файлы игры — НИКОГДА не коммитить (копирайт Cygames) ──
+GameAssembly.dll
+*.mdb
+hachimi/
+winhttp.dll
+
+# ── Локальный тулчейн / установщики ──
+.tools/
+*.exe
+
+# ── Готовые сборки → в GitHub Releases, не в репозиторий ──
+*.zip
+UmaRaceOverlay-RELEASE/
+UmaRaceOverlay-KEEP/
+
+# ── Прочее ──
+Thumbs.db
+.DS_Store
+113541
+
+# Примечание: Cargo.lock НЕ игнорируем — для бинарных крейтов его коммитят
+# (воспроизводимость сборки). Ассеты (icon.png, icon.ico, donat.png) в
+# uma-race-overlay-app/ тоже коммитятся — они нужны для сборки.

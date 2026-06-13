@@ -1,0 +1,413 @@
+Stats and their Purposes
+All of the five base stats can have a minimum value of 1 and a maximum value of 2000. In calculations, values past 1200 are halved. For example, a Speed stat of 1500 will actually count as 1350 (1200 plus half of 300).
+
+Your horsegirl's mood will also affect the stat values used in calculations of mechanics. Normal (yellow) mood will leave them unchanged, whereas higher or lower mood will increase or decrease their value in mechanics by 2% per mood level.
+
+During a run (i.e., when doing a Career mode), all stats are temporarily increased by a flat value of 400.
+
+
+Speed
+The Speed stat affects your Target Speed during the Late-Race and Last Spurt phases, and the additional Target Speed gained from the last spurt mechanic (not to be confused with the Last Spurt phase). Unlike what one might expect, it does not affect the earlier phases.
+
+The speed value used in calculations can also be lowered by terrain type and terrain condition, and raised by meeting certain race course thresholds.
+
+Power
+The Power stat affects the height of acceleration your horsegirl can achieve at any point during the race and her ability to change lanes.
+
+It also factors into the Stamina Contest (スタミナ勝負), Repositioning (位置取り調整), Power Conservation (足を貯める), and Release (脚色十分) mechanics.
+
+It will also lower the loss of Target Speed when running uphill, with the reduction being greater the higher the stat is.
+
+Like the Speed stat, it can be lowered by terrain type and condition.
+
+Stamina
+The Stamina stat affects how much HP (also called effective stamina) a horsegirl will have during a race.
+
+A character's maximum HP is calculated once at the beginning of a race. HP will mainly be consumed by simply running, but various other mechanics can also use (or recover) it. Its value also affects how much Target Speed a horsegirl can gain via the Stamina Contest (スタミナ勝負) mechanic, and how long and fast her last spurt will be.
+
+Different strategies have different "efficiencies" in converting the Stamina stat to maximum HP. Late Surgers and End Closers boast the best conversion rate, and Pace Chasers have the worst (a difference of 11% between these extremes).
+
+Recovery skills will recover HP as a percentage. For example, the Breath of Fresh Air skill grants a recovery of 0.055, which translates to 5.5% of maximum HP. Therefore, stamina recovery is more efficient the more maximum HP a horsegirl has. The final number is also affected by the length of a race, with longer races resulting in higher recovery.
+
+HP consumption can also be affected by terrain type and terrain condition.
+
+Guts
+The Guts stat affects the value (and duration) of the different bonuses a horsegirl can gain via the last spurt mechanic, the Spot Struggle (位置取り争い), the Dueling (追い比べ), the Repositioning (位置取り調整), and the "Securing the Lead" (リード確保) mechanics. It also lowers stamina consumption during the Late-Race and Last Spurt phases.
+
+Wit
+Wit affects a horsegirl's chances of skill activation, how likely she is to rush during a race, and the chance to increase Target Speed and decrease stamina consumption during downhills. It also influences whether certain modes will be entered in the Position Keep mechanic. Contrary to popular belief, the Wit stat does not affect Late Starts.
+
+The effectiveness of your Wit stat in mechanics is additionally affected by the relevant strategy aptitude of your character. An S-rank aptitude will increase it by 10%, an A-rank aptitude will leave it unchanged, and lower aptitudes will reduce it by varying factors, such as a 40% reduction at D-rank and a 90% reduction at G-rank. The aptitude spark and increases through skills do not affect skill activation chance.
+
+
+Race Phases
+Every race consists of four phases, independent of the race's length. In skill conditions, these phases are numbered from 0 to 3.
+
+The "Early-Race" (序盤) spans the 1st sixth of the race.
+The "Mid-Race" (中盤) spans the 2nd to 4th sixth of the race.
+The "Late-Race" (終盤) spans the 5th sixth of the race.
+The "Last Spurt" (ラストスパート) spans the 6th sixth of the race.
+The Last Spurt phase can essentially be considered a part of the Late-Race, aside from specific skills which trigger only during the Last Spurt.
+
+Note: The "Last Spurt" phase is not to be confused with the concept of the last spurt mechanic, which is confusingly named the same.
+
+In the game itself, you can see the phases delimited by the ticks displayed on the progress bar at the top during races. The first tick marks the start of the Mid-Race, and the second tick marks the start of the Late-Race. This progress bar disappears around the start of the Last Spurt.
+
+
+The race course charts show the phases marked in yellow, purple, cyan, and red, respectively. The start of the above-mentioned last spurt mechanic (which, again, is not to be confused with the Last Spurt phase) is marked as a "Fast Forward" media icon in cyan.
+
+
+Understanding these phases is vital, as many skills and mechanics revolve around them. For instance, some skills might only trigger in the Mid-Race.
+
+Examples of Phases in Races
+For example, in a 2400-meter race (where one-sixth is 400 meters), this is how the phases would be split:
+
+Race Phase	Start	End	Sixths
+Early-Race	0m	400m	0/6 ~ 1/6
+Mid-Race	400m	1600m	1/6 ~ 4/6
+Late-Race	1600m	2000m	4/6 ~ 5/6
+Last Spurt	2000m	2400m	5/6 ~ 6/6
+For comparison, the phases of a 1000-meter race (where one-sixth is ~167 meters) would look like this instead:
+
+Race Phase	Start	End	Sixths
+Early-Race	0m	167m	0/6 ~ 1/6
+Mid-Race	167m	667m	1/6 ~ 4/6
+Late-Race	667m	833m	4/6 ~ 5/6
+Last Spurt	833m	1000m	5/6 ~ 6/6
+Race Terrains, Terrain Condition, and Stat Thresholds
+Races can be held on two types of terrain: turf (芝) or dirt (ダート). Additionally, the terrain may be classified under different conditions during a race: firm (良), good (稍重), soft (重), or heavy (不良).
+
+These two factors can affect the base Speed, Power, and Stamina stat values used for calculations in mechanics.
+
+Heavy terrain will reduce the Speed stat by 50.
+In turf races, the Power stat will be decreased by 50 on any terrain condition other than firm (良).
+In dirt races, the Power stat will be decreased by 100 on any terrain condition aside from good (稍重), which will reduce it by 50 instead.
+Soft (重) and heavy (不良) terrain conditions will increase HP consumption by 2% per second.
+A race course may additionally have one or more stat thresholds. Exceeding a threshold stat will increase the Speed stat by 5% for every multiple of 300, up to a maximum bonus of 20% at 900 of the exceeded threshold.
+
+Not all race courses have such thresholds - you can find the information on which race courses have which stat thresholds on the race course pages.
+
+
+Horse Lengths (バ身)
+For distances within races, the game uses a measurement unit called "(horse) lengths" or "bashin" (バ身) in Japanese. One horse length corresponds to about 2.5 meters. You might also encounter fractions, such as "1/2 Lengths" (「1/2バ身」), representing half a horse length. A distance labeled as "Long Shot" (「大差」) (lit. "Big Difference") refers to any distance over ten horse lengths.
+
+Note: "Horse length" is a real term, but it's usually equivalent to 2.4 meters. The game uses 2.5 meters, with the explanation that "the horse length was derived from the arm span of the three horsegirl goddesses of legend."
+
+In the underlying mechanics, meters per second (m/s) are usually used in calculations. Although some game elements do use horse lengths, they are more of a decorative feature, e.g. race results.
+
+Other measurements you'll see during in-game race results are Nose (ハナ) at around 20 cm, Head (アタマ) at around 40 cm, and Neck (くび) at around 80 cm distance. These measurements are used for immersing players and aren't generally relevant to the game's mechanics.
+
+Target Speed and Current Speed
+Within the game, the speed at which a horsegirl is running is viewed from two different perspectives:
+
+Target Speed, the speed she is trending toward, and
+Current Speed, the speed she is currently running at.
+When a horsegirl is running at a speed that is below her Target Speed (i.e., Current Speed is lower than Target Speed), she will start accelerating to close that gap, and vice versa decelerate when Current Speed is higher the Target Speed.
+
+The speed at which horsegirls run is affected by several factors, like skill effects, the length of the race, the horsegirl's strategy, and the current phase of the race. Interestingly enough, the Speed stat only affects Target Speed during the Late-Race (and Last Spurt) phase. The distance aptitude also only matters for Target Speed during these two phases.
+
+Due to the difference in Target Speed between the Mid-Race and the Late-Race (see the Points of Acceleration section), acceleration skills, which allow a horsegirl to close the gap between these two speeds faster, are particularly valuable at the start of the Late-Race (i.e. at the start of the last spurt mechanic), but mostly negligible at other points in time.
+
+You may also sometimes hear other players say that a skill can "carry over". This refers to a speed-increasing skill activating at the end of the Mid-Race, with a duration long enough for its effects to last into the last spurt. That results in the girl starting her spurt with a higher Target Speed than she would have under normal circumstances.
+
+Horsegirls may also be blocked by those in front of them, limiting their Target Speed roughly to the speed of the girl blocking them. This is especially fatal for late-starting Front Runners or backline (Late Surger or End Closer) girls attempting to overtake others during their last spurt.
+
+Accelerating and Decelerating for Speed Changes
+One crucial aspect to note here is that an increase in Target Speed (usually via skills) does not result in an immediate increase of the Current Speed, but simply raises the maximum speed reachable via acceleration.
+
+When the Target Speed increases and the girl is accelerating, it will take time until she reaches this new maximum speed. After the skill's duration is up, the character will decelerate back to her previous Target Speed. If she's not accelerating fast enough to reach this new top speed during its duration, an increased Target Speed is rendered partially or even wholly ineffective.
+
+Changes in Current Speed work slightly differently depending on whether it's a buff or debuff. Buffs to Current Speed don't need acceleration, so a character gets an immediate speed boost that lasts for the whole duration, but they do involve deceleration after the effect fades. Debuffs do not involve either acceleration or deceleration, but are immediate changes.
+
+See the image below for an illustration of how changes in both Target and Current Speed play out in-game, assuming the horsegirl is accelerating enough to hit the new Target Speed within the duration.
+
+
+While there currently aren't any Target Speed debuffs, they would simply be an inverted version of the Target Speed buff in the above visualization.
+
+Average Speed
+To get an idea of the average speed the horsegirls are running at, these are the baseline (no modifiers) speeds during different phases of the race:
+
+3 m/s (~11 km/h) when the race starts.
+17 m/s (~61 km/h) during the so-called "Start Dash" at the very beginning of the Early-Race.
+20 m/s (~72 km/h) during the rest of the Early-Race and the Mid-Race.
+25 m/s (~90 km/h) during the last spurt (mechanic).
+These are some fast horsegirls.
+
+The above numbers vary depending on strategy, but these differences are not substantial.
+
+With the above information, it becomes much easier to imagine how big of an effect a skill that increases your Target Speed will have. For example, increasing your Target Speed by 0.45 m/s (~1.5 km/h) via a skill during the Mid-Race means an increase of 2.25% from 20 m/s.
+
+
+Acceleration
+Acceleration refers to the rate at which speed increases. For example, with an acceleration of 0.5 m/s^2 (meaning the speed increases by 0.5 meters per second every second), the speed of a horsegirl would have increased by 2 m/s in four seconds. Deceleration is the opposite, signifying the rate at which speed decreases.
+
+In the game, acceleration is affected by several factors:
+
+The Power stat
+The character's strategy
+The current phase of the race
+Whether the character is currently running uphill
+The character's aptitude for the race's terrain and distance
+Though many detailed numbers are involved in these calculations, the essentials are that better stats and aptitudes lead to better acceleration, while uphill terrain means less acceleration.
+
+Points of Acceleration
+The common belief within the game's community that "acceleration only happens during the last spurt (mechanic)" is a slight misunderstanding.
+
+What's really happening is that the difference in Target Speed is only significant enough when transitioning from the Mid-Race to the last spurt. It then becomes essential to stack acceleration, so the horsegirl can reach her new Target Speed as quickly as possible. Doing so allows her to run at her top speed for most of the remaining race distance.
+
+However, technically, horsegirls can (and will) accelerate throughout the entire race, such as when using their Position Keep strategy.
+
+Here's an example to illustrate:
+
+During the Mid-Race, a horsegirl will run at an average Target Speed of 20 m/s. When the last spurt starts, this Target Speed increases to 25 m/s. Assuming A-rank aptitudes and 1200 Power, she will accelerate at a rate of ~0.46 m/s^2, so it would typically take around 11 seconds to reach the new top speed.
+
+Activating a skill that increases acceleration by 0.2 to 0.66 m/s^2 will shorten the time needed to ~7.5 seconds. This leads to an effective gain of 8.75 meters (equal to 3.5 horse lengths) on competitors without this extra acceleration skill.
+
+For minor speed increases, like activating a gold skill during the Mid-Race, where she would go from 20 m/s to 20.35 m/s, the impact of additional acceleration is negligible.
+
+Another case where acceleration is valuable is when Front Runners are trying to establish their frontline position at the start of the race. They want to reach their initial Target Speed quickly to get ahead of the other strategies as soon as possible.
+
+Start Delay and Late Starts (出遅れ)
+At the start of a race, every horsegirl will roll a random start delay of up to 0.1 seconds. Contrary to popular belief, the value is not affected by the Wit stat.
+
+However, some skills can influence the start delay value. For example:
+
+Don't Tell Me What to Do! and Dilly-Dally will add a fixed value to the roll, guaranteeing a late start.
+Skills such as Concentration and Focus will multiply the roll by a factor lower than 1, making a late start less likely.
+Purple skills like Gate Trouble will also multiply the roll, but this time by a factor higher than 1, making a late start more likely.
+Delays below 0.02 seconds will grant the Strong Start bonus in Team Trials races, but are otherwise irrelevant for race mechanics.
+
+Delays of 0.066 seconds or more will be considered a Late Start. That will cause a loss of the acceleration a horsegirl would normally have received at the start of the Early-Race. Late starts can prove especially fatal for frontline strategies, as they will often be unable to reclaim their desired position until it's too late.
+
+A start delay of 0.08 seconds or more will also show a "Late Start" indicator on the screen. Delays between 0.066 and 0.08 seconds are still considered late start, they just don't trigger the notice.
+
+
+Last Spurt
+The last spurt mechanic (not to be confused with the Last Spurt phase) happens in the final part of the race, when a horsegirl tries to increase her speed for a final push to the finish line.
+
+This Target Speed bonus depends on several factors, such as her Speed and Guts stats, and her aptitude for the race's distance. The buff makes acceleration skills particularly valuable at this part of the race, as they can help horsegirls reach their Target Speed faster.
+
+When entering the Late-Race, if the girl has enough HP to run the remainder of the race at this increased speed, she will immediately start her last spurt and receive the full Target Speed bonus.
+
+If she doesn't have enough HP, three scenarios can happen:
+
+Her gain will be reduced until the condition is satisfied.
+The starting point of her last spurt will be delayed.
+Her spurt will be both reduced and delayed.
+In the worst-case scenario, the horsegirl may not be able to perform a last spurt at all, and receive no bonus.
+
+See the "Points of Acceleration" section for some math behind why acceleration is so valuable during the last spurt.
+
+Position Keep
+Position Keep refers to a mechanic active from the start of the race until about halfway through the Mid-Race. During Position Keep, every horsegirl in the race will have one of 6 racing "modes" active.
+
+The normal mode and the Pace Up Ex mode are available to all strategies. The Speed Up and Overtake modes are exclusive to Front Runners (including Runaways). The Pace Up and Pace Down modes are exclusive to Pace Chasers, Late Surgers, and End Closers.
+
+Which mode a non-Front Runner will enter is based on their distance from the race's pacemaker. Before the 1.5th anniversary of the JP server, pacemaker referred to the currently highest-placed horsegirl in the most forward strategy (e.g., the highest-placed Front Runner, or the highest-placed Pace Chaser if there are no Front Runners). After this anniversary, the selection logic has changed, but it's not well understood yet.
+
+Once Position Keep ends, participating horsegirls no longer adhere to these modes.
+
+In the race course charts, the end of the Position Keep area is marked by a purple "Pause/Resume" media icon. The game itself does not give any direct indicators as to when it ends (aside from the horsegirls' behavior changing, of course).
+
+Shared Modes
+The normal mode is the default state from which a horsegirl will enter other modes. Every two seconds, she will check to see if a switch to any different mode is possible.
+
+When the exit condition of a non-normal mode is fulfilled, or when the maximum mode distance is hit, the horsegirl will return to the normal mode and start checking again.
+
+The maximum distance a horsegirl can run in a non-normal mode before switching back is 1/24 of the race length. For Runaway, it's tripled to 3/24.
+
+The Pace Up Ex mode was added during the JP server's second anniversary on February 24, 2023. It is prioritized over any of the strategy-specific modes.
+
+Front Runners will enter Pace Up Ex if any character with a strategy that should be behind them is ahead (i.e., a Pace Chaser, Late Surger, or End Closer is in front of them). Non-Front Runners will enter when the pacemaker's strategy should be behind them (but is not).
+
+While in this mode, the horsegirl's Target Speed will be raised to its maximum. Once the positioning conditions are resolved, or the maximum mode distance is reached, the mode will end.
+
+Front Runner Modes
+The Front Runner modes (Speed Up and Overtake) are centered around taking the lead and putting a certain distance between themselves and others.
+
+A Front Runner horsegirl will enter the Speed Up mode if she's in the lead, but there's not enough distance between her and the second place. She also needs to pass a Wit check.
+
+What counts as "not enough" depends on the strategy used:
+
+Less than 4.5 meters for Front Runners
+Less than 12.5 meters for Front Runners when there aren't any other Front Runners in the race
+Less than 17.5 meters for Runaways
+On the other hand, a horsegirl can enter the Overtake mode when she's not in first place among racers with the same strategy (Front Runner or Runaway). She also needs to pass a Wit check.
+
+The modes will end when the desired position has been achieved, or the timeout is reached.
+
+Non-Front Runner Modes
+Non-Front Runner horsegirls try to stay within a certain minimum and maximum distance from the pacemaker during Position Keep. This distance depends on the race length and the girl's strategy (e.g., Pace Chasers will try to stay closer to the front than End Closers).
+
+A horsegirl will enter the Pace Up mode if she's currently above the maximum distance (i.e., too far behind the pacemaker). She also has to pass a Wit check for this mode to activate. Pace Up will grant a slight Target Speed buff.
+
+On the other hand, she will enter the Pace Down mode if she's currently below the minimum distance (i.e., too close to the pacemaker). Any active speed-raising skill buffs will also prevent this mode from activating. Pace Down will reduce her Target Speed.
+
+Activating any speed-increasing skill (Target or Current Speed) during Pace Down will immediately end it, and the horsegirl will return to the normal mode.
+
+Rushing (掛かり)
+In every race, there is a random chance for a horsegirl to go into a state of rushing (掛かり, kakari). The probability of rushing occurring is determined by the horsegirl's Wit stat, and can be further affected by some skills (e.g., Self-Control reducing the chance by a flat 3%).
+
+If the RNG decides that a horsegirl will rush, it will activate exactly once, randomly somewhere between the middle of the Early-Race and the middle of the Mid-Race. A "Rush" (「掛かり」) indicator will show up when it does.
+
+
+Every three seconds while rushing, a random roll occurs with a 60% chance of ending the status.
+
+If the girl is still rushing after 12 seconds, the status will end automatically. Certain debuff skills (e.g., Frantic Betweeners) can extend this 12-second timer by a specified number of seconds for each time the debuff is applied.
+
+Rushing has the following effects while it's active:
+
+The stamina consumption is increased (1.6x).
+All Wit rolls will automatically succeed.
+The girl's Position Keep strategy will temporarily change.
+Specifically, Front Runners will go into Speed Up mode, Pace Chasers will act like Front Runners, Late Surgers will either act like Front Runners (75%) or Pace Chasers (25%), and End Closers will act like either Front Runners (70%), Pace Chasers (20%) or Late Surgers (10%).
+
+Overall, keep in mind that your horsegirl might require some extra HP to be prepared for an eventual rush. On average, rushing will cause a loss of HP equal to about 45 to 180 base Stamina stat, depending on the race length.
+
+Spot Struggle
+This mechanic was added during the JP server's first anniversary on February 24, 2022. On Global, it was added during the half-anniversary celebrations on November 11, 2025.
+
+A Spot Struggle (位置取り争い) can trigger anywhere from 150 meters after the start of the race, until shortly after the beginning of the Mid-Race.
+
+It can activate when there are two or more Front Runner or Runaway (大逃げ) strategy horsegirls within a certain distance of each other.
+
+Front Runners must be less than 3.75 meters from each other.
+Runaway must be less than 5 meters from each other.
+Spot Struggle will always be either Front Runners-only or Runaway-only; the two strategies cannot participate in the same contest.
+
+When a contest triggers, an indicator will show.
+
+
+During the Spot Struggle, participating Front Runners or Runaway will all gain extra Target Speed. The strength and duration of this buff depend on their Guts stat.
+
+Additionally, the stamina usage of all participants will be increased.
+
+Front Runners will use 1.4x more stamina than usual.
+Runaway will use 3.5x more stamina than usual.
+Rushing Front Runners will use 3.6x more stamina than usual.
+Rushing Runaway will use 7.7x more stamina than usual.
+Any ongoing Spot Struggles will automatically end slightly before the half-point of the Mid-Race, no matter the remaining effect duration.
+
+Dueling
+This mechanic was added during the JP server's first anniversary on February 24, 2022. On Global, it was added during the half-anniversary celebrations on November 11, 2025.
+
+For a Dueling (追い比べ) to occur, multiple horsegirls must:
+
+Have similar Current Speed (within less than 0.6m/s of each other).
+Be within three meters of each other for longer than two seconds.
+Have at least 15% HP left.
+Be on the Final Straight.
+Note: The Final Straight used to refer to the straight after the Final Corner (which could theoretically not exist for cornerless courses) until the JP server's 2.5th Anniversary. However, it was changed to the literal last straight on a course, unrelated to corners. If a course only has one straight, the first straight is also the Final Straight.
+
+There is no restriction on the duration or distance for Dueling (aside from the length of the Final Straight). If the remaining HP of a girl participating in a Dueling falls below 5%, she will drop out.
+
+In a Duel, all participating girls will gain Target Speed and Acceleration based on their Guts stat.
+
+Power Conservation and Release (足を貯める and 脚色十分)
+This mechanic was added during the JP server's second anniversary on February 24, 2023.
+
+A horsegirl can conserve power (足を貯める) when her Power stat is higher than 1200.
+
+Power stat refers to her base Power stat plus any bonuses or maluses from mood or skills (like Good Track Condition ×).
+
+Once her last spurt starts, if the girl has enough power conserved, she will release it (脚色十分) and her acceleration will increase.
+
+Specifics about these mechanics are still mostly unknown.
+
+
+Stamina Contest (スタミナ勝負)
+This mechanic was added during the JP server's 2.5th anniversary on August 24, 2023.
+
+A horsegirl can trigger a Stamina Contest if:
+
+Her Stamina stat is higher than 1200.
+The race is over 2100 meters long.
+She's in the last spurt and has reached her maximum spurt speed.
+Stamina stat refers to her base Stamina stat plus any bonuses or maluses from mood or skills (like Tokyo Racetrack ○).
+
+When Stamina Contest triggers, the horsegirl's last spurt Target Speed will rise beyond her standard maximum. The strength of this buff depends on her Stamina and Power stats and the length of the race.
+
+Once the Stamina Contest buff triggers, it will last until the end of the race.
+
+
+Repositioning (位置取り調整) and Stamina Conservation (持久力温存)
+These mechanics were added during the JP server's 2.5th anniversary on August 24, 2023.
+
+There are two cases during which a horsegirl might activate the Repositioning mechanic:
+
+There is a large gap between her and the current first place ("Type 1").
+There are many other girls nearby ("Type 2").
+Furthermore, Repositioning can only trigger between the middle and the end of the Mid-Race.
+
+When Repositioning triggers, the horsegirl will consume additional HP to raise her Target Speed in hopes of securing a better position (getting closer to the lead or moving ahead of the pack nearby).
+
+The amount of HP used depends on the race length and the horsegirl's strategy. The strength of the Target Speed buff depends on her Power and Guts stat, her strategy, and the race's length. For Front Runners, the increase will be higher the fewer other Front Runner girls are nearby.
+
+For Type 1, whether the distance between the horsegirl and the current first place is considered large enough to trigger Repositioning depends on the length of the race and the strategy of the horsegirl triggering the mechanic. Its activation chance is also affected by the horsegirl's Wit stat.
+
+The activation chance of Type 2 is affected by the horsegirl's Guts stat, the number of horsegirls nearby, and how many of them have the same strategy as the one triggering the mechanic.
+
+Repositioning can happen multiple times in one race, but only the first time will trigger a visual indicator.
+
+
+If the horsegirl doesn't have enough HP, activating Repositioning could cause problems for her, because she potentially wouldn't have enough to finish the race at full speed. That's where Stamina Conservation comes into play.
+
+When a horsegirl doesn't have enough HP to trigger Repositioning and finish the race at full speed, she will roll a Wit check every two seconds. If she succeeds, that means she's noticed her lack of strength, and Stamina Conservation will activate.
+
+The single benefit of Stamina Conservation is that the girl will not participate in Repositioning while under its effect, as that could hinder the last spurt for her.
+
+Recharging enough HP via recovery skills will end Stamina Conservation, and allow her to activate Repositioning again.
+
+
+Securing the Lead (リード確保)
+This mechanic was added during the JP server's 2.5th anniversary on August 24, 2023.
+
+A horsegirl may trigger the Securing the Lead mechanic if she judges that the distance between herself and the horsegirls that should be behind her is insufficient.
+
+"Horsegirls that should be behind her" refers to the natural arrangement of strategies during most of a race. For example, Late Surgers should be behind Pace Chasers, and Pace Chasers behind Front Runners. What is considered "insufficient" depends on the length of the race and the strategy of the horsegirl.
+
+When Securing the Lead activates, the horsegirl will use additional stamina to increase her Target Speed. The activation chance of this mechanic depends on her Wit stat.
+
+The stamina consumption of this mechanic is based on the length of the race and the horsegirl's strategy. The strength of the buff depends on her Guts stat. Additionally, for Front Runner horsegirls, the increase will be higher the fewer other Front Runner girls are nearby.
+
+This mechanic can trigger multiple times between the middle and the end of the Mid-Race, but only the first time will show an indicator.
+
+
+
+Corner Numbering
+Every corner in the game is assigned a number from 1 to 4. This mechanic is important for skills that only trigger on specific corners, like Seamless.
+
+However, the corners are numbered differently from what most people expect. Specifically:
+
+The last corner of the track will always be assigned number 4.
+After that, the corner numbers will decrease as you backtrack through the course (i.e., the second-to-last corner will have number 3, etc.).
+If there are more than four corners, the counter will loop back to 4 after the fourth one.
+Let's take Sapporo's 1000-meter dirt course as an example:
+
+
+The last corner of the track (the rightmost point in the picture) will be number 4.
+As you go back through the course from there, you will only encounter one other corner (near the 777 m point). That one will get number 3.
+And that's it; there will be no corners 1 or 2.
+As an example of a track with more than four corners, let's take Sapporo's 2600-meter turf course:
+
+
+
+The last corner is in the second lap, at the rightmost point of the picture. That will be number 4.
+The other corner in the same lap will then get number 3.
+After that, we move to the first lap. We're going backward, so while the course is clockwise, we will count the corners counterclockwise.
+Starting from the red flag, the leftmost corner will be number 2.
+The one on the bottom will then be number 1.
+For the rightmost corner, we will loop back to number 4.
+And finally, the top one will get the number 3.
+For skills with the corner_random condition, like the previously mentioned Seamless, the skill will always pick a point on the last possible instance of that particular corner. For example, on the 2600-meter course, there are two corners numbered 3; however, the skill can only activate on the one in the second lap.
+
+Gates and Gate Brackets
+Gates refer to the starting "doors" horsegirls have for a race, such as "doors" 1, 2, 3, and so on. On the other hand, gate brackets refer to groups of several gates. There is a maximum of 8 gate brackets (numbered in order), but there can be up to 18 total gates.
+
+The concept of gate brackets is essential for gate skills, because their activation conditions will usually refer to brackets rather than individual gates (e.g., Outer Gate Affinity ○ or Lucky Seven).
+
+Gate brackets 1 through 3 are considered "Inner Brackets" (内枠), while brackets 6 through 8 are considered "Outer Brackets" (外枠).
+
+In races with eight (or fewer) participants, the gates will correspond one-to-one to a gate bracket, i.e., gate 1 is gate bracket 1, gate 2 is gate bracket 2, and so on.
+
+In races with more than 8 participants, gates will be added in reverse, starting from the last bracket. So, in a race with 9 participants, the extra gate will go to bracket 8; in a race with 10 participants, to brackets 8 and 7. If there are more than 16 participants, the process starts from bracket 8 again.

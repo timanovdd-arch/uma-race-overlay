@@ -1,0 +1,37 @@
+[package]
+name = "uma_race_overlay_app"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "uma_race_overlay_app"
+path = "src/main.rs"
+
+[dependencies]
+egui_overlay = "0.9"
+egui = "0.29"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Чтение master.mdb игры (SQLite): эффекты скиллов и таблицы коэффициентов.
+# bundled — собственная статическая libsqlite3, без внешних DLL.
+rusqlite = { version = "0.32", features = ["bundled"] }
+# Быстрый детерминируемый RNG для Monte Carlo (без зависимости от системного).
+fastrand = "2"
+# Декодирование PNG (QR-картинка в донат-окне). Только png — без лишних форматов.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[build-dependencies]
+# Встраивает иконку в .exe (Проводник). Иконка окна/панели задач ставится
+# в рантайме (main.rs set_window_icon).
+winresource = "0.1"
+
+[profile.release]
+opt-level = 2
