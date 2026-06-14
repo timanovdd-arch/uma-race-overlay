@@ -80,6 +80,10 @@ static CTOR_ORIG: AtomicUsize = AtomicUsize::new(0);
 static RUN_MOTION_ORIG: AtomicUsize = AtomicUsize::new(0);
 /// Одноразовый дамп класса RaceSimulateReader (поиск дистанции/поверхности трассы).
 static SKILL_DUMPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Reader текущей гонки (для пост-разбора кадров на финише). 0 = нет.
+static RACE_READER: AtomicUsize = AtomicUsize::new(0);
+/// Статистика блока/закидывания за текущую гонку уже посчитана.
+static STATS_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 unsafe extern "C" fn ctor_hook(this: RawPtr, data: RawPtr, reader: RawPtr) {
     let orig: unsafe extern "C" fn(RawPtr, RawPtr, RawPtr) =
@@ -167,6 +171,50 @@ unsafe extern "C" fn ctor_hook(this: RawPtr, data: RawPtr, reader: RawPtr) {
         if !sim_data.is_null() {
             let sk = il2cpp::class_of(sim_data);
             il2cpp::dump_class_fields(sk, "RaceSimulateData(_simData)");
+
+            // _frameDataList (+0x18) — List<FrameData>. Гонка предрассчитана при
+            // загрузке, поэтому покадровые данные (скорость, лейн, таймеры блока)
+            // ВСЕЙ гонки уже здесь. Backing array List<T> лежит в _items (+0x10).
+            let frame_list: RawPtr = unsafe { il2cpp::read_field(sim_data, 0x18) };
+            if !frame_list.is_null() {
+                let items: RawPtr = unsafe { il2cpp::read_field(frame_list, 0x10) };
+                let n = unsafe { il2cpp::array_length(items) };
+                logf!("_frameDataList: items {:p} len {}", items, n);
+                let ec = il2cpp::array_element_class(items);
+                if !ec.is_null() {
+                    il2cpp::dump_class_fields(ec, "FrameData(elem)");
+                    il2cpp::dump_class_methods(ec, "FrameData(elem)");
+                }
+                // Уровень глубже: FrameData.HorseDataArray (+0x18) — per-horse
+                // данные кадра (скорость, лейн, дистанция, ТАЙМЕРЫ БЛОКА). Дереф
+                // кадра[0] безопасен: RaceSimulateFrameData — ссылочный тип.
+                if n > 0 {
+                    let frame0 = unsafe { il2cpp::array_get_ref(items, 0) };
+                    if !frame0.is_null() {
+                        let horse_arr: RawPtr = unsafe { il2cpp::read_field(frame0, 0x18) };
+                        let hn = unsafe { il2cpp::array_length(horse_arr) };
+                        logf!("FrameData.HorseDataArray: len {}", hn);
+                        let hec = il2cpp::array_element_class(horse_arr);
+                        if !hec.is_null() {
+                            il2cpp::dump_class_fields(hec, "HorseFrame(elem)");
+                            il2cpp::dump_class_methods(hec, "HorseFrame(elem)");
+                        }
+                    }
+                }
+            }
+
+            // _horseResultDataArray (+0x20) — T[] итогов по каждой лошади
+            // (вероятное место суммарного времени в блоке / причины поражения).
+            let res_arr: RawPtr = unsafe { il2cpp::read_field(sim_data, 0x20) };
+            if !res_arr.is_null() {
+                let n = unsafe { il2cpp::array_length(res_arr) };
+                logf!("_horseResultDataArray: len {}", n);
+                let ec = il2cpp::array_element_class(res_arr);
+                if !ec.is_null() {
+                    il2cpp::dump_class_fields(ec, "HorseResultData(elem)");
+                    il2cpp::dump_class_methods(ec, "HorseResultData(elem)");
+                }
+            }
         }
     }
 
@@ -179,8 +227,14 @@ unsafe extern "C" fn ctor_hook(this: RawPtr, data: RawPtr, reader: RawPtr) {
         .map_or(false, |t| now.duration_since(t) > Duration::from_secs(10))
     {
         race.horses.clear();
+        // Новая гонка — сбрасываем флаг пост-разбора кадров.
+        STATS_DONE.store(false, Ordering::Relaxed);
     }
     race.last_ctor = Some(now);
+    // Reader один на всю гонку — запоминаем для разбора кадров на финише.
+    if !reader.is_null() {
+        RACE_READER.store(reader as usize, Ordering::Relaxed);
+    }
     logf!(
         "horse ctor: gate {} name '{}' trainer '{}' stats {}/{}/{}/{}/{} style {} apt d[{},{},{},{}] s[{}]",
         gate_no, chara_name, trainer_name,
@@ -245,6 +299,10 @@ unsafe extern "C" fn run_motion_speed_hook(this: RawPtr) -> f32 {
         if is_last_spurt && horse.accel > horse.max_spurt_accel {
             horse.max_spurt_accel = horse.accel;
         }
+        // Пик скорости во время last spurt.
+        if is_last_spurt && speed > horse.max_spurt_speed {
+            horse.max_spurt_speed = speed;
+        }
 
         horse.hp = hp;
         horse.max_hp = max_hp;
@@ -255,6 +313,43 @@ unsafe extern "C" fn run_motion_speed_hook(this: RawPtr) -> f32 {
         horse.finished = finished;
         horse.finish_order = finish_order;
         horse.last_update = now;
+
+        // Пост-разбор кадров: когда ВСЕ лошади финишировали — один раз проходим
+        // предрассчитанные кадры и считаем блок/закидывание/отрыв по каждой.
+        let all_finished = race.horses.values().all(|h| h.finished);
+        if all_finished && !STATS_DONE.swap(true, Ordering::Relaxed) {
+            let reader = RACE_READER.load(Ordering::Relaxed) as RawPtr;
+            let acc = crate::frames::compute(reader);
+            if acc.is_empty() {
+                logf!("frame stats: no data (reader {:p})", reader);
+                STATS_DONE.store(false, Ordering::Relaxed); // попробуем на след. кадре
+            } else {
+                for h in race.horses.values_mut() {
+                    let idx = (h.gate_no - 1) as usize;
+                    if let Some(a) = acc.get(idx) {
+                        h.blocked_time = a.blocked_time;
+                        h.blocked_episodes = a.episodes;
+                        h.kakari_time = a.kakari_time;
+                        h.finish_diff_time = a.finish_diff_time;
+                        h.blocked_lost_dist = a.lost_dist;
+                        h.blocked_lost_time = a.lost_time;
+                        h.spurt_blocked_time = a.spurt_blocked_time;
+                        h.spurt_blocked_episodes = a.spurt_episodes;
+                        h.spurt_lost_dist = a.spurt_lost_dist;
+                        h.spurt_lost_time = a.spurt_lost_time;
+                        h.spurt_unresolved = a.spurt_unresolved;
+                        h.stats_ready = true;
+                        // Валидация маппинга idx=gate-1 по финишному месту.
+                        logf!(
+                            "frame stats: gate {} idx {} blocked {:.2}s x{} spurtBlk {:.2}s x{} spurtLost {:.1}m/{:.2}s diff {:.3} simFO {} liveFO {}",
+                            h.gate_no, idx, a.blocked_time, a.episodes,
+                            a.spurt_blocked_time, a.spurt_episodes, a.spurt_lost_dist, a.spurt_lost_time,
+                            a.finish_diff_time, a.finish_order, h.finish_order
+                        );
+                    }
+                }
+            }
+        }
     }
 
     ret

@@ -37,6 +37,9 @@ struct Horse {
     accel: f32,
     #[serde(default)]
     max_spurt_accel: f32,
+    /// Максимальная скорость (m/s), достигнутая во время спурта.
+    #[serde(default)]
+    max_spurt_speed: f32,
     distance: f32,
     spurt: bool,
     finished: bool,
@@ -74,9 +77,49 @@ struct Horse {
     /// Скиллы: [[skill_id, level], ...].
     #[serde(default)]
     skills: Vec<(i32, i32)>,
+    // --- пост-разбор гонки (заполняется плагином на финише) ---
+    /// Статистика блока/закидывания посчитана (поля ниже валидны).
+    #[serde(default)]
+    stats_ready: bool,
+    /// Суммарное время во фронт-блоке (сек).
+    #[serde(default)]
+    blocked_time: f32,
+    /// Число эпизодов блока.
+    #[serde(default)]
+    blocked_episodes: i32,
+    /// Время в закидывании (掛かり), сек.
+    #[serde(default)]
+    kakari_time: f32,
+    /// Финишный отрыв до победителя (сек).
+    #[serde(default)]
+    finish_diff_time: f32,
+    /// Оценка потерянной из-за блока дистанции (м).
+    #[serde(default)]
+    blocked_lost_dist: f32,
+    /// Оценка потерянного из-за блока времени (сек).
+    #[serde(default)]
+    blocked_lost_time: f32,
+    // --- блок во время спурта (главная метрика влияния) ---
+    #[serde(default)]
+    spurt_blocked_time: f32,
+    #[serde(default)]
+    spurt_blocked_episodes: i32,
+    #[serde(default)]
+    spurt_lost_dist: f32,
+    #[serde(default)]
+    spurt_lost_time: f32,
+    /// Зажат в спурте до финиша → оценка потери занижена (неопределённость).
+    #[serde(default)]
+    spurt_unresolved: bool,
     /// Позиция в забеге среди ВСЕХ лошадей (вычисляется здесь, в JSON её нет).
     #[serde(skip)]
     rank: i32,
+    /// Отрыв (сек) до лошади на одно место впереди (вычисляется здесь; NaN = нет).
+    #[serde(skip)]
+    gap_ahead: f32,
+    /// Контрфактуальное место «без спурт-блока у всех» (вычисляется здесь; 0 = нет).
+    #[serde(skip)]
+    cf_place: i32,
     /// Оценка шанса победы 0..1 (вычисляется здесь; < 0 = нет данных).
     #[serde(skip)]
     win_chance: f32,
@@ -238,6 +281,51 @@ fn set_window_icon(glfw_backend: &mut GlfwBackend) {
     }]);
 }
 
+/// Добавляет системные шрифты Windows с поддержкой CJK/кириллицы как фолбэк,
+/// чтобы ники других игроков (японский/корейский/китайский) не рисовались
+/// квадратами-«тофу». Встроенный шрифт egui покрывает только латиницу + базовую
+/// кириллицу, поэтому подмешиваем шрифты из C:\Windows\Fonts (они штатно есть в
+/// Windows 10/11). Файлы НЕ бандлим в exe — читаем системные, чтобы не раздувать
+/// бинарник на ~30 МБ. egui сам идёт по списку семейства и подбирает глиф из
+/// первого шрифта, где он есть. Вызывать один раз при старте.
+fn install_system_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    // Кандидаты с широким покрытием. .ttc — коллекция, грузится индекс 0.
+    // Порядок = приоритет фолбэка: японский (игра японская) → корейский → китайский.
+    let candidates: [(&str, &str); 6] = [
+        ("sys_yu_gothic", "C:/Windows/Fonts/YuGothR.ttc"),
+        ("sys_meiryo", "C:/Windows/Fonts/meiryo.ttc"),
+        ("sys_ms_gothic", "C:/Windows/Fonts/msgothic.ttc"),
+        ("sys_malgun", "C:/Windows/Fonts/malgun.ttf"),
+        ("sys_yahei", "C:/Windows/Fonts/msyh.ttc"),
+        ("sys_simsun", "C:/Windows/Fonts/simsun.ttc"),
+    ];
+    let mut added: Vec<String> = Vec::new();
+    for (name, path) in candidates {
+        // Не грузим избыточно: одного японского + одного корейского/китайского
+        // достаточно для покрытия. Берём первые удачные из каждой «группы».
+        if let Ok(bytes) = std::fs::read(path) {
+            fonts
+                .font_data
+                .insert(name.to_string(), egui::FontData::from_owned(bytes));
+            added.push(name.to_string());
+        }
+    }
+    if added.is_empty() {
+        return; // системных шрифтов нет — оставляем дефолт egui
+    }
+    // Дописываем как фолбэк В КОНЕЦ обоих семейств (после латинского дефолта).
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        let list = fonts.families.entry(family).or_default();
+        for name in &added {
+            if !list.contains(name) {
+                list.push(name.clone());
+            }
+        }
+    }
+    ctx.set_fonts(fonts);
+}
+
 /// Открыть ссылку в браузере (Windows `start`).
 fn open_url(url: &str) {
     let _ = std::process::Command::new("cmd")
@@ -291,7 +379,12 @@ struct App {
     placed: bool,
     visible: bool,
     sort_by_rank: bool,
+    /// Колонка «base accel live» (текущее ускорение). Тоггл F9 / чекбокс.
     show_accel: bool,
+    /// Колонки «spurt phase data» (макс. ускорение и макс. скорость в спурте).
+    show_spurt: bool,
+    /// Колонки «block analysis» (время в блоке/закидывании, влияние на место).
+    show_block: bool,
     /// Показывать чужих лошадей (по дефолту видны только свои).
     show_enemies: bool,
     /// Показывать колонку «шанс победы» (F10). Стартует СКРЫТЫМ каждый запуск.
@@ -344,6 +437,8 @@ impl App {
             visible: true,
             sort_by_rank: true,
             show_accel: false,
+            show_spurt: false,
+            show_block: false,
             show_enemies: false,
             show_chance: false, // всегда скрыт на старте (функция в разработке)
             chance_disclaimer_seen: false,
@@ -616,6 +711,9 @@ impl EguiOverlay for App {
             glfw_backend.window.set_pos(vx, vy);
             glfw_backend.set_window_size([vw as f32, vh as f32]);
             set_window_icon(glfw_backend);
+            // Подмешиваем системные CJK/кириллические шрифты, чтобы ники игроков
+            // не превращались в квадраты.
+            install_system_fonts(egui_context);
         }
 
         self.poll_hotkeys();
@@ -690,6 +788,37 @@ impl EguiOverlay for App {
                 .collect();
             for h in &mut horses {
                 h.rank = rank_of.get(&h.gate).copied().unwrap_or(0);
+            }
+
+            // Отрыв до лошади на одно место впереди (для оценки «стоил ли блок
+            // места»). Считаем по финишировавшим с готовой статистикой, по всему
+            // составу: gap = мой отрыв-до-победителя − отрыв соперника впереди.
+            let mut gap_of: HashMap<i32, f32> = HashMap::new();
+            let finished: Vec<&Horse> =
+                by_rank.iter().filter(|h| h.finished && h.stats_ready).collect();
+            for w in finished.windows(2) {
+                let g = (w[1].finish_diff_time - w[0].finish_diff_time).max(0.0);
+                gap_of.insert(w[1].gate, g);
+            }
+            for h in &mut horses {
+                h.gap_ahead = gap_of.get(&h.gate).copied().unwrap_or(f32::NAN);
+            }
+
+            // Контрфактуальное место «если бы спурт-блока не было НИ У КОГО»:
+            // каждому возвращаем его спурт-потерю времени и пересортировываем
+            // финишные времена. ct = отрыв_до_победителя − потеря_в_спурте.
+            let mut cf: Vec<(i32, f32)> = finished
+                .iter()
+                .map(|h| (h.gate, h.finish_diff_time - h.spurt_lost_time))
+                .collect();
+            cf.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            let cf_place_of: HashMap<i32, i32> = cf
+                .iter()
+                .enumerate()
+                .map(|(i, (g, _))| (*g, (i + 1) as i32))
+                .collect();
+            for h in &mut horses {
+                h.cf_place = cf_place_of.get(&h.gate).copied().unwrap_or(0);
             }
 
             // Запоминаем «замороженный» снимок гонки (с рангами и win%), чтобы
@@ -780,7 +909,7 @@ impl App {
                     ui.add_space(6.0);
                     ui.separator();
                     ui.label(
-                        RichText::new("F8 hide · F10 %win rate · F9 accel · F6 rivals")
+                        RichText::new("F8 hide · F10 %win rate · F9 base accel · F6 rivals")
                             .weak(),
                     );
                     ui.add_space(4.0);
@@ -813,9 +942,23 @@ impl App {
                     {
                         self.save_cfg();
                     }
-                    // Acceleration panel toggle (also key F9).
-                    ui.checkbox(&mut self.show_accel, "accel")
-                        .on_hover_text("Show acceleration columns (key F9).");
+                    // Live acceleration column toggle (also key F9).
+                    ui.checkbox(&mut self.show_accel, "base accel live")
+                        .on_hover_text("Show the live acceleration column (m/s², key F9).");
+                    // Spurt phase data: max spurt accel + max speed reached in spurt.
+                    ui.checkbox(&mut self.show_spurt, "spurt phase data")
+                        .on_hover_text(
+                            "Show spurt phase stats: max spurt accel and\n\
+                             max achieved speed during spurt.",
+                        );
+                    // Block analysis: time spent blocked + whether it likely cost a place.
+                    ui.checkbox(&mut self.show_block, "block analysis")
+                        .on_hover_text(
+                            "Real race post-mortem from the game's own data:\n\
+                             time spent blocked (front), kakari (rush), and an\n\
+                             estimate of whether blocking cost a place.\n\
+                             Fills in after the race finishes.",
+                        );
                     if ui
                         .checkbox(&mut self.show_chance, "%win rate")
                         .on_hover_text(
@@ -831,12 +974,20 @@ impl App {
                     }
                 });
                 ui.label(
-                    RichText::new("F8 hide · F9 accel · F6 rivals · F10 %win rate · buttons are clickable")
+                    RichText::new("F8 hide · F9 base accel · F6 rivals · F10 %win rate · buttons are clickable")
                         .weak()
                         .small(),
                 );
                 ui.separator();
-                race_table(ui, horses, self.show_accel, self.show_chance, &self.my_trainer);
+                race_table(
+                    ui,
+                    horses,
+                    self.show_accel,
+                    self.show_spurt,
+                    self.show_block,
+                    self.show_chance,
+                    &self.my_trainer,
+                );
                 ui.separator();
                 self.bottom_bar(ui);
             });
@@ -1150,16 +1301,24 @@ fn rank_cmp(a: &Horse, b: &Horse) -> std::cmp::Ordering {
     }
 }
 
-/// Единая таблица. При show_accel к каждой строке добавляются колонки
-/// ускорения справа (окно само расширяется вправо), строки идеально выровнены.
+/// Единая таблица. При show_accel/show_spurt к каждой строке добавляются колонки
+/// справа (окно само расширяется вправо), строки идеально выровнены.
+/// show_accel — «base accel live» (1 колонка); show_spurt — «spurt phase data»
+/// (2 колонки: max spurt accel + max spurt speed).
 fn race_table(
     ui: &mut egui::Ui,
     horses: &[Horse],
     show_accel: bool,
+    show_spurt: bool,
+    show_block: bool,
     show_chance: bool,
     my_trainer: &str,
 ) {
-    let cols = 5 + usize::from(show_chance) + if show_accel { 3 } else { 0 };
+    let cols = 4
+        + usize::from(show_chance)
+        + if show_accel { 1 } else { 0 }
+        + if show_spurt { 2 } else { 0 }
+        + if show_block { 2 } else { 0 };
     egui::Grid::new("horses")
         .num_columns(cols)
         .striped(true)
@@ -1176,11 +1335,29 @@ fn race_table(
             }
             ui.label(RichText::new("Stamina (HP)").strong());
             ui.label(RichText::new("Speed").strong());
-            ui.label("");
             if show_accel {
-                ui.separator();
-                ui.label(RichText::new("accel m/s²").strong());
-                ui.label(RichText::new("max spurt").strong());
+                ui.label(RichText::new("accel m/s²").strong())
+                    .on_hover_text("Live acceleration (base accel).");
+            }
+            if show_spurt {
+                ui.label(RichText::new("max spurt accel").strong())
+                    .on_hover_text("Max acceleration reached during spurt.");
+                ui.label(RichText::new("max spurt speed").strong())
+                    .on_hover_text("Max achieved speed during spurt (m/s).");
+            }
+            if show_block {
+                ui.label(RichText::new("spurt block").strong()).on_hover_text(
+                    "Time spent blocked from the front DURING the spurt\n\
+                     (and episode count). Block in the spurt is what really\n\
+                     hurts — it chokes acceleration at the decisive stage.",
+                );
+                ui.label(RichText::new("place w/o block").strong()).on_hover_text(
+                    "Counterfactual finishing place if NOBODY had been blocked in\n\
+                     the spurt: each horse gets its spurt-block time loss back and\n\
+                     the finish times are re-ranked. 'P5→P2' = would have placed 2nd.\n\
+                     '?' = blocked through the finish, so the loss is under-counted.\n\
+                     An estimate from real race data, not a guarantee.",
+                );
             }
             ui.end_row();
 
@@ -1239,24 +1416,24 @@ fn race_table(
                 if h.finished {
                     ui.label(RichText::new("done").weak());
                 } else if h.speed > 0.01 {
-                    ui.label(format!("{:.2} m/s", h.speed));
+                    // Индикатор спурта встроен в ячейку Speed (без отдельного столбца):
+                    // во время спурта скорость оранжевая с пометкой.
+                    if h.spurt {
+                        ui.label(
+                            RichText::new(format!("{:.2} m/s ⏫", h.speed))
+                                .color(Color32::from_rgb(255, 115, 25))
+                                .strong(),
+                        )
+                        .on_hover_text("SPURT");
+                    } else {
+                        ui.label(format!("{:.2} m/s", h.speed));
+                    }
                 } else {
                     // speed not available before the start
                     ui.label(RichText::new("—").weak());
                 }
 
-                if h.spurt && !h.finished {
-                    ui.label(
-                        RichText::new("SPURT")
-                            .color(Color32::from_rgb(255, 115, 25))
-                            .strong(),
-                    );
-                } else {
-                    ui.label("");
-                }
-
                 if show_accel {
-                    ui.separator();
                     // ускорение: зелёное при разгоне, красное при торможении
                     let acc = h.accel;
                     let col = if acc > 0.02 {
@@ -1267,7 +1444,10 @@ fn race_table(
                         Color32::GRAY
                     };
                     ui.label(RichText::new(format!("{:+.2}", acc)).color(col).monospace());
+                }
 
+                if show_spurt {
+                    // max spurt accel (пик ускорения за спурт)
                     let peak = h.max_spurt_accel;
                     if peak > 0.0 {
                         ui.label(
@@ -1278,6 +1458,88 @@ fn race_table(
                         );
                     } else {
                         ui.label(RichText::new("—").weak());
+                    }
+                    // max achieved speed during spurt
+                    let sp = h.max_spurt_speed;
+                    if sp > 0.0 {
+                        ui.label(
+                            RichText::new(format!("{:.2} m/s", sp))
+                                .color(Color32::from_rgb(255, 170, 60))
+                                .strong()
+                                .monospace(),
+                        );
+                    } else {
+                        ui.label(RichText::new("—").weak());
+                    }
+                }
+
+                if show_block {
+                    let green = Color32::from_rgb(76, 217, 100);
+                    let orange = Color32::from_rgb(255, 170, 60);
+                    let red = Color32::from_rgb(230, 57, 53);
+                    // Тултип со справкой по полному блоку/закидыванию.
+                    let detail = format!(
+                        "Total front block (any phase): {:.1}s ×{}. Kakari: {:.1}s.",
+                        h.blocked_time, h.blocked_episodes, h.kakari_time
+                    );
+                    if !h.stats_ready {
+                        // считается на финише гонки
+                        ui.label(RichText::new("—").weak());
+                        ui.label(RichText::new("—").weak());
+                    } else if h.spurt_blocked_time < 0.05 {
+                        ui.label(RichText::new("clean").color(green).monospace())
+                            .on_hover_text(format!("No block during the spurt.\n{}", detail));
+                        ui.label(RichText::new("—").weak())
+                            .on_hover_text("No spurt block — could not have cost the win this way.");
+                    } else {
+                        ui.label(
+                            RichText::new(format!(
+                                "{:.1}s ×{}",
+                                h.spurt_blocked_time, h.spurt_blocked_episodes
+                            ))
+                            .color(orange)
+                            .monospace(),
+                        )
+                        .on_hover_text(format!(
+                            "Blocked {:.1}s over {} episode(s) DURING the spurt \
+                             (~{:.0} m lost).\n{}",
+                            h.spurt_blocked_time, h.spurt_blocked_episodes, h.spurt_lost_dist, detail
+                        ));
+                        // «место без блока» — контрфактуальное место, если вернуть
+                        // спурт-потерю ВСЕМ и пересортировать финишные времена.
+                        let cf = h.cf_place;
+                        let unres = if h.spurt_unresolved { " ?" } else { "" };
+                        let tip = format!(
+                            "Counterfactual place if nobody was blocked in the spurt.\n\
+                             Estimated time lost to the spurt block: ~{:.2}s (~{:.0} m).\n\
+                             Gap to winner: {:.2}s.{}",
+                            h.spurt_lost_time,
+                            h.spurt_lost_dist,
+                            h.finish_diff_time,
+                            if h.spurt_unresolved {
+                                "\n? = blocked through the finish — loss under-counted."
+                            } else {
+                                ""
+                            }
+                        );
+                        if cf == 0 {
+                            ui.label(RichText::new("—").weak());
+                        } else if cf < h.rank {
+                            // без блока приехал бы выше
+                            let col = if cf == 1 { red } else { orange };
+                            ui.label(
+                                RichText::new(format!("P{}→P{}{}", h.rank, cf, unres))
+                                    .color(col)
+                                    .strong(),
+                            )
+                            .on_hover_text(format!(
+                                "{}\nWould have placed higher without the spurt block.",
+                                tip
+                            ));
+                        } else {
+                            ui.label(RichText::new(format!("P{}{}", h.rank, unres)).weak())
+                                .on_hover_text(format!("{}\nSame place without the spurt block.", tip));
+                        }
                     }
                 }
                 ui.end_row();

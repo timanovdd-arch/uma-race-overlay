@@ -67,7 +67,7 @@ fn build_json() -> String {
         skills_json.push(']');
 
         s.push_str(&format!(
-            "{{\"gate\":{},\"name\":\"{}\",\"trainer\":\"{}\",\"hp\":{:.1},\"max_hp\":{:.1},\"speed\":{:.2},\"accel\":{:.3},\"max_spurt_accel\":{:.3},\"distance\":{:.1},\"spurt\":{},\"finished\":{},\"order\":{},\"style\":{},\"stats\":[{},{},{},{},{}],\"apt\":[{},{},{},{},{}],\"ground\":[{},{}],\"adist\":{},\"aground\":{},\"gtype\":{},\"is_user\":{},\"motiv\":{},\"pop\":{},\"skills\":{}}}",
+            "{{\"gate\":{},\"name\":\"{}\",\"trainer\":\"{}\",\"hp\":{:.1},\"max_hp\":{:.1},\"speed\":{:.2},\"accel\":{:.3},\"max_spurt_accel\":{:.3},\"max_spurt_speed\":{:.2},\"distance\":{:.1},\"spurt\":{},\"finished\":{},\"order\":{},\"style\":{},\"stats\":[{},{},{},{},{}],\"apt\":[{},{},{},{},{}],\"ground\":[{},{}],\"adist\":{},\"aground\":{},\"gtype\":{},\"is_user\":{},\"motiv\":{},\"pop\":{},\"stats_ready\":{},\"blocked_time\":{:.2},\"blocked_episodes\":{},\"kakari_time\":{:.2},\"finish_diff_time\":{:.3},\"blocked_lost_dist\":{:.1},\"blocked_lost_time\":{:.2},\"spurt_blocked_time\":{:.2},\"spurt_blocked_episodes\":{},\"spurt_lost_dist\":{:.1},\"spurt_lost_time\":{:.2},\"spurt_unresolved\":{},\"skills\":{}}}",
             h.gate_no,
             json_escape(&h.chara_name),
             json_escape(&h.trainer_name),
@@ -76,6 +76,7 @@ fn build_json() -> String {
             h.speed,
             h.accel,
             h.max_spurt_accel,
+            h.max_spurt_speed,
             h.distance,
             h.is_last_spurt,
             h.finished,
@@ -101,6 +102,18 @@ fn build_json() -> String {
             h.is_user,
             h.motivation,
             h.popularity,
+            h.stats_ready,
+            h.blocked_time,
+            h.blocked_episodes,
+            h.kakari_time,
+            h.finish_diff_time,
+            h.blocked_lost_dist,
+            h.blocked_lost_time,
+            h.spurt_blocked_time,
+            h.spurt_blocked_episodes,
+            h.spurt_lost_dist,
+            h.spurt_lost_time,
+            h.spurt_unresolved,
             skills_json,
         ));
     }

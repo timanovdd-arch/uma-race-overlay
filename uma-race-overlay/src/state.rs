@@ -15,6 +15,8 @@ pub struct HorseState {
     pub accel: f32,
     /// Максимальное ускорение, достигнутое во время last spurt.
     pub max_spurt_accel: f32,
+    /// Максимальная скорость (m/s), достигнутая во время last spurt.
+    pub max_spurt_speed: f32,
     pub distance: f32,
     pub is_last_spurt: bool,
     pub finished: bool,
@@ -52,6 +54,28 @@ pub struct HorseState {
     pub popularity: i32,
     /// Скиллы лошади: (skill_id, level). Эффекты берутся из master.mdb в app.
     pub skills: Vec<(i32, i32)>,
+    // --- пост-разбор гонки из предрассчитанных кадров (заполняется на финише) ---
+    /// Статистика блока/закидывания посчитана (иначе поля ниже не валидны).
+    pub stats_ready: bool,
+    /// Суммарное время во фронт-блоке (сек).
+    pub blocked_time: f32,
+    /// Число отдельных эпизодов блока.
+    pub blocked_episodes: i32,
+    /// Время в закидывании (掛かり), сек.
+    pub kakari_time: f32,
+    /// Финишный отрыв до победителя (сек).
+    pub finish_diff_time: f32,
+    /// Оценка потерянной из-за блока дистанции (м).
+    pub blocked_lost_dist: f32,
+    /// Оценка потерянного из-за блока времени (сек).
+    pub blocked_lost_time: f32,
+    // --- блок во время спурта ---
+    pub spurt_blocked_time: f32,
+    pub spurt_blocked_episodes: i32,
+    pub spurt_lost_dist: f32,
+    pub spurt_lost_time: f32,
+    /// Зажат в спурте до финиша → оценка потери занижена (неопределённость).
+    pub spurt_unresolved: bool,
 }
 
 impl HorseState {
@@ -66,6 +90,7 @@ impl HorseState {
             speed: 0.0,
             accel: 0.0,
             max_spurt_accel: 0.0,
+            max_spurt_speed: 0.0,
             distance: 0.0,
             is_last_spurt: false,
             finished: false,
@@ -91,6 +116,18 @@ impl HorseState {
             motivation: -1,
             popularity: -1,
             skills: Vec::new(),
+            stats_ready: false,
+            blocked_time: 0.0,
+            blocked_episodes: 0,
+            kakari_time: 0.0,
+            finish_diff_time: 0.0,
+            blocked_lost_dist: 0.0,
+            blocked_lost_time: 0.0,
+            spurt_blocked_time: 0.0,
+            spurt_blocked_episodes: 0,
+            spurt_lost_dist: 0.0,
+            spurt_lost_time: 0.0,
+            spurt_unresolved: false,
         }
     }
 }

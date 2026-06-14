@@ -6,6 +6,7 @@
 //! Сам оверлей рисует отдельная программа (uma_race_overlay_app.exe) в своём
 //! процессе — так рендер не может уронить игру и не конфликтует с GUI Hachimi.
 
+mod frames;
 mod hooks;
 mod il2cpp;
 mod logger;

@@ -32,6 +32,9 @@ pub struct Il2CppApi {
     pub field_get_name: unsafe extern "C" fn(RawPtr) -> *const c_char,
     pub object_get_class: unsafe extern "C" fn(RawPtr) -> RawPtr,
     pub class_get_name: unsafe extern "C" fn(RawPtr) -> *const c_char,
+    pub class_get_element_class: unsafe extern "C" fn(RawPtr) -> RawPtr,
+    pub class_is_valuetype: unsafe extern "C" fn(RawPtr) -> bool,
+    pub class_array_element_size: unsafe extern "C" fn(RawPtr) -> i32,
 }
 
 unsafe impl Send for Il2CppApi {}
@@ -73,6 +76,9 @@ pub fn api() -> Option<&'static Il2CppApi> {
         field_get_name: sym!(b"il2cpp_field_get_name\0"),
         object_get_class: sym!(b"il2cpp_object_get_class\0"),
         class_get_name: sym!(b"il2cpp_class_get_name\0"),
+        class_get_element_class: sym!(b"il2cpp_class_get_element_class\0"),
+        class_is_valuetype: sym!(b"il2cpp_class_is_valuetype\0"),
+        class_array_element_size: sym!(b"il2cpp_class_array_element_size\0"),
     };
     let _ = API.set(api);
     API.get()
@@ -238,6 +244,61 @@ pub fn class_of(obj: RawPtr) -> RawPtr {
     match api() {
         Some(a) if !obj.is_null() => unsafe { (a.object_get_class)(obj) },
         _ => std::ptr::null_mut(),
+    }
+}
+
+/// Класс ЭЛЕМЕНТА массива по самому массиву-объекту. БЕЗОПАСНО: класс берётся
+/// из класса массива (через il2cpp_class_get_element_class), а не разыменованием
+/// элемента — поэтому работает и для массивов value-типов (struct), не рискуя
+/// прочитать мусор вместо указателя на класс.
+pub fn array_element_class(arr: RawPtr) -> RawPtr {
+    let Some(a) = api() else { return std::ptr::null_mut() };
+    if arr.is_null() {
+        return std::ptr::null_mut();
+    }
+    let arr_class = class_of(arr);
+    if arr_class.is_null() {
+        return std::ptr::null_mut();
+    }
+    unsafe { (a.class_get_element_class)(arr_class) }
+}
+
+/// Является ли класс value-типом (struct). Для массивов struct-элементы лежат
+/// инлайн (а field offset метаданных включает 0x10 заголовка — вычитать при чтении).
+pub fn is_valuetype(klass: RawPtr) -> bool {
+    match api() {
+        Some(a) if !klass.is_null() => unsafe { (a.class_is_valuetype)(klass) },
+        _ => false,
+    }
+}
+
+/// Размер элемента массива (stride) по самому массиву-объекту: для ссылочных
+/// массивов = 8 (указатель), для массивов value-типов = размер struct.
+pub fn array_element_size(arr: RawPtr) -> usize {
+    let Some(a) = api() else { return 8 };
+    let cls = class_of(arr);
+    if cls.is_null() {
+        return 8;
+    }
+    let sz = unsafe { (a.class_array_element_size)(cls) };
+    if sz > 0 {
+        sz as usize
+    } else {
+        8
+    }
+}
+
+/// Указатель на данные i-го элемента массива. Для value-типов — инлайн данные
+/// (arr+0x20 + i*stride); для ссылочных — разыменованный указатель элемента.
+pub unsafe fn array_elem_base(arr: RawPtr, i: usize, stride: usize, is_vt: bool) -> RawPtr {
+    if arr.is_null() {
+        return std::ptr::null_mut();
+    }
+    let data = (arr as *const u8).add(0x20);
+    if is_vt {
+        data.add(i * stride) as RawPtr
+    } else {
+        *(data.add(i * 8) as *const RawPtr)
     }
 }
 
