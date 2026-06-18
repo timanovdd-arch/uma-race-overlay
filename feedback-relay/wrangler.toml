@@ -1,0 +1,15 @@
+# Cloudflare Worker — релей фидбэка Uma Race Overlay.
+# Деплой и секреты описаны в README.md рядом.
+
+name = "uma-feedback-relay"
+main = "worker.js"
+compatibility_date = "2024-09-01"
+
+# KV-хранилище для лимитов и чёрного списка.
+# id подставить после `wrangler kv namespace create STORE` (см. README).
+kv_namespaces = [
+  { binding = "STORE", id = "PASTE_KV_ID_HERE" }
+]
+
+# Секреты (BOT_TOKEN, CHAT_ID, APP_KEY, IP_SALT) НЕ хранятся здесь —
+# они ставятся через `wrangler secret put …` и живут зашифрованными у Cloudflare.

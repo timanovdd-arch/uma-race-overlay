@@ -164,6 +164,15 @@ unsafe extern "C" fn ctor_hook(this: RawPtr, data: RawPtr, reader: RawPtr) {
     // Одноразовый дамп RaceSimulateReader и его _simData (+0x10): ищем точную
     // дистанцию, тип/состояние грунта и погоду, чтобы знать их ДО старта.
     if !SKILL_DUMPED.swap(true, Ordering::Relaxed) {
+        // Поиск track_id/курса: игра знает track_id (track-зелёные скиллы по нему
+        // активируются), но в данных симуляции его нет. Кандидаты — HorseData
+        // (ctor arg) и хукнутый объект this (HorseRaceInfoReplay).
+        let dk = il2cpp::class_of(data);
+        il2cpp::dump_class_methods(dk, "HorseData(full)");
+        let tk = il2cpp::class_of(this);
+        il2cpp::dump_class_fields(tk, "HorseRaceInfoReplay");
+        il2cpp::dump_class_methods(tk, "HorseRaceInfoReplay");
+
         let rk = il2cpp::class_of(reader);
         il2cpp::dump_class_methods(rk, "RaceSimulateReader");
         il2cpp::dump_class_fields(rk, "RaceSimulateReader");
@@ -171,6 +180,35 @@ unsafe extern "C" fn ctor_hook(this: RawPtr, data: RawPtr, reader: RawPtr) {
         if !sim_data.is_null() {
             let sk = il2cpp::class_of(sim_data);
             il2cpp::dump_class_fields(sk, "RaceSimulateData(_simData)");
+
+            // ПОИСК course_id (цикл дампа): int-скан полей reader и _simData.
+            // Курс в course_data имеет id вида 10xxx (Hanshin 2200 = 10906),
+            // дистанция ~1000-4000. Ищем offset, где лежит такое значение.
+            let scan = |obj: RawPtr, label: &str, upto: usize| {
+                if obj.is_null() {
+                    return;
+                }
+                logf!("--- int-scan {} (course_id ~10xxx / distance) ---", label);
+                let mut off = 0x10usize;
+                while off < upto {
+                    let v: i32 = unsafe { il2cpp::read_field(obj, off) };
+                    if (1000..=300000).contains(&v) {
+                        logf!("  +{:#05x} = {}", off, v);
+                    }
+                    off += 4;
+                }
+            };
+            scan(reader, "RaceSimulateReader", 0x60);
+            scan(sim_data, "RaceSimulateData", 0xC0);
+
+            // Header (+0x10) — метаданные гонки: вероятно курс/дистанция/условия.
+            let header: RawPtr = unsafe { il2cpp::read_field(sim_data, 0x10) };
+            if !header.is_null() {
+                let hk = il2cpp::class_of(header);
+                il2cpp::dump_class_fields(hk, "RaceSimulateData.Header");
+                il2cpp::dump_class_methods(hk, "RaceSimulateData.Header");
+                scan(header, "Header", 0x120);
+            }
 
             // _frameDataList (+0x18) — List<FrameData>. Гонка предрассчитана при
             // загрузке, поэтому покадровые данные (скорость, лейн, таймеры блока)
@@ -215,6 +253,49 @@ unsafe extern "C" fn ctor_hook(this: RawPtr, data: RawPtr, reader: RawPtr) {
                     il2cpp::dump_class_methods(ec, "HorseResultData(elem)");
                 }
             }
+
+            // _simEvDataList (+0x28) — список ИГРОВЫХ событий гонки (List<T>): среди
+            // них активации скиллов (кто/когда/какой скилл) — ГРАУНД-ТРУС тайминга
+            // скиллов для окна-реплея. Backing array List<T> в _items (+0x10).
+            // Дамп раскладки элемента (имена полей подскажут frame/horse/skill_id),
+            // чтобы затем читать события в frames.rs и писать их в архив (поле `act`).
+            let ev_list: RawPtr = unsafe { il2cpp::read_field(sim_data, 0x28) };
+            if !ev_list.is_null() {
+                let items: RawPtr = unsafe { il2cpp::read_field(ev_list, 0x10) };
+                let n = unsafe { il2cpp::array_length(items) };
+                logf!("_simEvDataList: items {:p} len {}", items, n);
+                let ec = il2cpp::array_element_class(items);
+                if !ec.is_null() {
+                    il2cpp::dump_class_fields(ec, "SimEvData(elem)");
+                    il2cpp::dump_class_methods(ec, "SimEvData(elem)");
+                    // Раскладка подтверждена: frameTime(f32)@0x10, type(i32)@0x14,
+                    // param(int[] ref)@0x18. Печатаем ВСЕ события с содержимым param,
+                    // чтобы сопоставить skill_id (из "scout:" строк) и определить, какой
+                    // type = активация скилла и где в param лежит skill_id/horse.
+                    let is_vt = il2cpp::is_valuetype(ec);
+                    let stride = il2cpp::array_element_size(items);
+                    logf!("SimEvData: is_valuetype {} stride {}", is_vt, stride);
+                    for k in 0..n.min(160) {
+                        let base = unsafe { il2cpp::array_elem_base(items, k, stride, is_vt) };
+                        if base.is_null() {
+                            continue;
+                        }
+                        let ft: f32 = unsafe { il2cpp::read_field(base, 0x10) };
+                        let ty: i32 = unsafe { il2cpp::read_field(base, 0x14) };
+                        let param: RawPtr = unsafe { il2cpp::read_field(base, 0x18) };
+                        let plen = unsafe { il2cpp::array_length(param) };
+                        let mut ps = String::new();
+                        for j in 0..plen.min(12) {
+                            let v: i32 = unsafe { il2cpp::read_field(param, 0x20 + j * 4) };
+                            if j > 0 {
+                                ps.push(',');
+                            }
+                            ps.push_str(&v.to_string());
+                        }
+                        logf!("ev[{}] t={:.3} type={} param[{}]=[{}]", k, ft, ty, plen, ps);
+                    }
+                }
+            }
         }
     }
 
@@ -227,13 +308,33 @@ unsafe extern "C" fn ctor_hook(this: RawPtr, data: RawPtr, reader: RawPtr) {
         .map_or(false, |t| now.duration_since(t) > Duration::from_secs(10))
     {
         race.horses.clear();
-        // Новая гонка — сбрасываем флаг пост-разбора кадров.
+        // Новая гонка — сбрасываем флаг пост-разбора кадров и метаданные курса
+        // (course_id перечитается ниже для новой гонки).
         STATS_DONE.store(false, Ordering::Relaxed);
+        race.course_id = 0;
     }
     race.last_ctor = Some(now);
     // Reader один на всю гонку — запоминаем для разбора кадров на финише.
     if !reader.is_null() {
         RACE_READER.store(reader as usize, Ordering::Relaxed);
+    }
+
+    // Метаданные уровня гонки (курс/трек/тип) читаем один раз за гонку, когда
+    // course_id ещё не заполнен. Источник — RaceManager.RaceInfo (см. read_race_meta).
+    if race.course_id == 0 {
+        if let Some(m) = read_race_meta() {
+            race.course_id = m.course_id;
+            race.race_track_id = m.race_track_id;
+            race.course_distance = m.course_distance;
+            race.course_ground = m.course_ground;
+            race.race_type = m.race_type;
+            race.race_instance_id = m.race_instance_id;
+            logf!(
+                "race meta: course_id {} track {} dist {} ground {} type {} instance {}",
+                m.course_id, m.race_track_id, m.course_distance, m.course_ground,
+                m.race_type, m.race_instance_id
+            );
+        }
     }
     logf!(
         "horse ctor: gate {} name '{}' trainer '{}' stats {}/{}/{}/{}/{} style {} apt d[{},{},{},{}] s[{}]",
@@ -265,6 +366,95 @@ unsafe extern "C" fn ctor_hook(this: RawPtr, data: RawPtr, reader: RawPtr) {
     race.horses.insert(this as usize, horse);
 }
 
+/// Метаданные уровня гонки, прочитанные из `RaceManager.RaceInfo`.
+struct RaceMeta {
+    course_id: i32,
+    race_track_id: i32,
+    course_distance: i32,
+    course_ground: i32,
+    race_type: i32,
+    race_instance_id: i32,
+}
+
+/// Закэшированные MethodInfo* геттеров (резолвятся один раз по именам).
+#[allow(non_snake_case)]
+struct MetaApi {
+    get_Instance: RawPtr,
+    get_RaceInfo: RawPtr,
+    get_RaceType: RawPtr,
+    get_RaceInstanceId: RawPtr,
+    get_RaceCourseSet: RawPtr,
+}
+unsafe impl Send for MetaApi {}
+unsafe impl Sync for MetaApi {}
+static META_API: OnceLock<Option<MetaApi>> = OnceLock::new();
+
+/// Разрешить (один раз) геттеры уровня гонки. None, если имена не совпали —
+/// тогда авто-курс просто не работает (фолбэк — ручной выбор курса в app).
+fn meta_api() -> Option<&'static MetaApi> {
+    META_API
+        .get_or_init(|| {
+            let image = il2cpp::find_image("umamusume.dll")?;
+            let rm = il2cpp::find_class(image, "Gallop", "RaceManager")?;
+            let ri = il2cpp::find_class(image, "Gallop", "RaceInfo")?;
+            Some(MetaApi {
+                get_Instance: il2cpp::find_method(rm, "get_Instance", 0)?,
+                get_RaceInfo: il2cpp::find_method(rm, "get_RaceInfo", 0)?,
+                get_RaceType: il2cpp::find_method(ri, "get_RaceType", 0)?,
+                get_RaceInstanceId: il2cpp::find_method(ri, "get_RaceInstanceId", 0)?,
+                get_RaceCourseSet: il2cpp::find_method(ri, "get_RaceCourseSet", 0)?,
+            })
+        })
+        .as_ref()
+}
+
+/// Прочитать метаданные текущей гонки: `RaceManager.Instance` → `RaceInfo` →
+/// тип/инстанс + `RaceCourseSet` (Id = course_id, ключ course_data.json).
+///
+/// Всё через `il2cpp_runtime_invoke` (геттеры), БЕЗ сырых оффсетов на RaceInfo:
+/// прямой вызов generic `get_Instance`/чтение чужих оффсетов крашили. Единственное
+/// чтение по оффсету — поля самой мастер-строки `RaceCourseSet`
+/// (Id@0x10/RaceTrackId@0x14/Distance@0x18/Ground@0x1c), на объекте, который
+/// вернул штатный геттер (валиден — игра сама им пользуется).
+fn read_race_meta() -> Option<RaceMeta> {
+    let a = meta_api()?;
+    let mgr = il2cpp::invoke0(a.get_Instance, std::ptr::null_mut());
+    if mgr.is_null() {
+        return None;
+    }
+    let ri = il2cpp::invoke0(a.get_RaceInfo, mgr);
+    if ri.is_null() {
+        return None;
+    }
+    let race_type = il2cpp::invoke_i32(a.get_RaceType, ri).unwrap_or(-1);
+    let race_instance_id = il2cpp::invoke_i32(a.get_RaceInstanceId, ri).unwrap_or(-1);
+
+    let cs = il2cpp::invoke0(a.get_RaceCourseSet, ri);
+    let p = cs as usize;
+    let (course_id, race_track_id, course_distance, course_ground) =
+        if p >= 0x10000 && p < 0x7fff_ffff_0000 && p % 8 == 0 {
+            unsafe {
+                (
+                    il2cpp::read_field::<i32>(cs, 0x10),
+                    il2cpp::read_field::<i32>(cs, 0x14),
+                    il2cpp::read_field::<i32>(cs, 0x18),
+                    il2cpp::read_field::<i32>(cs, 0x1c),
+                )
+            }
+        } else {
+            (0, 0, 0, 0)
+        };
+
+    Some(RaceMeta {
+        course_id,
+        race_track_id,
+        course_distance,
+        course_ground,
+        race_type,
+        race_instance_id,
+    })
+}
+
 unsafe extern "C" fn run_motion_speed_hook(this: RawPtr) -> f32 {
     let orig: FnThisF32 = std::mem::transmute(RUN_MOTION_ORIG.load(Ordering::Relaxed));
     let ret = orig(this);
@@ -290,10 +480,22 @@ unsafe extern "C" fn run_motion_speed_hook(this: RawPtr) -> f32 {
 
         // Ускорение = Δскорости / Δt, со сглаживанием (экспоненциальное среднее),
         // чтобы убрать покадровый шум. dt берём от прошлого кадра этой лошади.
-        let dt = now.duration_since(horse.last_update).as_secs_f32();
-        if dt > 0.0005 && dt < 0.5 {
-            let raw_accel = (speed - horse.speed) / dt;
-            horse.accel = horse.accel * 0.8 + raw_accel * 0.2;
+        // Ускорение считаем по ФИКСИРОВАННОМУ окну (~50мс) через якорь, а НЕ по
+        // гэпу между вызовами хука: тот бывает <1мс (двойные вызовы/джиттер), и тогда
+        // Δскорости/Δt улетал в десятки-сотни м/с² — единичный спайк навсегда застревал
+        // в пике max_spurt_accel (видели 150). Окно делает Δt всегда осмысленным и не
+        // зависит от частоты вызова хука; установившееся значение (напр. 0.4 от ульты)
+        // сохраняется. Кламп — лишь страховка от телепортов скорости.
+        let win = now.duration_since(horse.accel_anchor_time).as_secs_f32();
+        if win >= 0.05 && win < 1.0 {
+            let raw_accel = ((speed - horse.accel_anchor_speed) / win).clamp(-15.0, 15.0);
+            horse.accel = horse.accel * 0.7 + raw_accel * 0.3;
+            horse.accel_anchor_speed = speed;
+            horse.accel_anchor_time = now;
+        } else if win >= 1.0 {
+            // Долго не обновлялись (новая лошадь/пауза) — переякориваемся без выброса.
+            horse.accel_anchor_speed = speed;
+            horse.accel_anchor_time = now;
         }
         // Пик ускорения во время last spurt (для финишного рывка).
         if is_last_spurt && horse.accel > horse.max_spurt_accel {
@@ -328,8 +530,10 @@ unsafe extern "C" fn run_motion_speed_hook(this: RawPtr) -> f32 {
                     let idx = (h.gate_no - 1) as usize;
                     if let Some(a) = acc.get(idx) {
                         h.blocked_time = a.blocked_time;
+                        h.pre_spurt_blocked_time = a.pre_spurt_blocked_time;
                         h.blocked_episodes = a.episodes;
                         h.kakari_time = a.kakari_time;
+                        h.finish_time = a.finish_time;
                         h.finish_diff_time = a.finish_diff_time;
                         h.blocked_lost_dist = a.lost_dist;
                         h.blocked_lost_time = a.lost_time;
@@ -341,13 +545,16 @@ unsafe extern "C" fn run_motion_speed_hook(this: RawPtr) -> f32 {
                         h.stats_ready = true;
                         // Валидация маппинга idx=gate-1 по финишному месту.
                         logf!(
-                            "frame stats: gate {} idx {} blocked {:.2}s x{} spurtBlk {:.2}s x{} spurtLost {:.1}m/{:.2}s diff {:.3} simFO {} liveFO {}",
-                            h.gate_no, idx, a.blocked_time, a.episodes,
+                            "frame stats: gate {} idx {} blocked {:.2}s x{} preSpurtBlk {:.2}s spurtBlk {:.2}s x{} spurtLost {:.1}m/{:.2}s finishT {:.3} diff {:.3} simFO {} liveFO {}",
+                            h.gate_no, idx, a.blocked_time, a.episodes, a.pre_spurt_blocked_time,
                             a.spurt_blocked_time, a.spurt_episodes, a.spurt_lost_dist, a.spurt_lost_time,
-                            a.finish_diff_time, a.finish_order, h.finish_order
+                            a.finish_time, a.finish_diff_time, a.finish_order, h.finish_order
                         );
                     }
                 }
+                // Полный архив гонки (meta + лошади + покадровый таймлайн) для
+                // офлайн-реверса: %LOCALAPPDATA%\uma_race_overlay_races\.
+                crate::archive::write_race(&race, reader);
             }
         }
     }

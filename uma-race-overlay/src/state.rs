@@ -13,6 +13,10 @@ pub struct HorseState {
     pub speed: f32,
     /// Текущее ускорение (m/s^2), сглаженное.
     pub accel: f32,
+    /// Якорь для расчёта ускорения по фиксированному окну (~50мс), а не по
+    /// гэпу между вызовами хука (тот бывает <1мс → деление на почти-ноль и спайки).
+    pub accel_anchor_speed: f32,
+    pub accel_anchor_time: Instant,
     /// Максимальное ускорение, достигнутое во время last spurt.
     pub max_spurt_accel: f32,
     /// Максимальная скорость (m/s), достигнутая во время last spurt.
@@ -59,11 +63,15 @@ pub struct HorseState {
     pub stats_ready: bool,
     /// Суммарное время во фронт-блоке (сек).
     pub blocked_time: f32,
+    /// Суммарное время во фронт-блоке ДО спурта (сек), «mid leg block».
+    pub pre_spurt_blocked_time: f32,
     /// Число отдельных эпизодов блока.
     pub blocked_episodes: i32,
     /// Время в закидывании (掛かり), сек.
     pub kakari_time: f32,
-    /// Финишный отрыв до победителя (сек).
+    /// Абсолютное финишное время (сек) — для контрфактуального ранжирования.
+    pub finish_time: f32,
+    /// `FinishDiffTime` = отрыв до лошади на одно место впереди (margin), НЕ до победителя.
     pub finish_diff_time: f32,
     /// Оценка потерянной из-за блока дистанции (м).
     pub blocked_lost_dist: f32,
@@ -89,6 +97,8 @@ impl HorseState {
             hp_pct: 0.0,
             speed: 0.0,
             accel: 0.0,
+            accel_anchor_speed: 0.0,
+            accel_anchor_time: Instant::now(),
             max_spurt_accel: 0.0,
             max_spurt_speed: 0.0,
             distance: 0.0,
@@ -118,8 +128,10 @@ impl HorseState {
             skills: Vec::new(),
             stats_ready: false,
             blocked_time: 0.0,
+            pre_spurt_blocked_time: 0.0,
             blocked_episodes: 0,
             kakari_time: 0.0,
+            finish_time: 0.0,
             finish_diff_time: 0.0,
             blocked_lost_dist: 0.0,
             blocked_lost_time: 0.0,
@@ -137,6 +149,21 @@ pub struct RaceState {
     pub horses: HashMap<usize, HorseState>,
     pub last_ctor: Option<Instant>,
     pub last_update: Option<Instant>,
+    // --- метаданные уровня гонки (читаются один раз за гонку из RaceManager) ---
+    /// `RaceCourseSet.Id` = ключ course_data.json (напр. Hanshin 2200 = 10906).
+    /// 0 = ещё не прочитано (триггер чтения в ctor_hook на новой гонке).
+    pub course_id: i32,
+    /// `raceTrackId` (напр. 10009).
+    pub race_track_id: i32,
+    /// Дистанция курса в метрах.
+    pub course_distance: i32,
+    /// Поверхность: 1 турф, 2 грунт.
+    pub course_ground: i32,
+    /// Тип гонки (`RaceInfo.RaceType`): для обычной = 9. Иное → метка события
+    /// (Champions Meeting и т.п.) — для фильтра «парсить только нужные гонки».
+    pub race_type: i32,
+    /// `RaceInfo.RaceInstanceId` (напр. 511901).
+    pub race_instance_id: i32,
 }
 
 pub static RACE: LazyLock<Mutex<RaceState>> = LazyLock::new(|| {
@@ -144,6 +171,12 @@ pub static RACE: LazyLock<Mutex<RaceState>> = LazyLock::new(|| {
         horses: HashMap::new(),
         last_ctor: None,
         last_update: None,
+        course_id: 0,
+        race_track_id: 0,
+        course_distance: 0,
+        course_ground: 0,
+        race_type: 0,
+        race_instance_id: 0,
     })
 });
 

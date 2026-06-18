@@ -29,7 +29,7 @@ and an optional experimental **win-rate prediction** (Monte Carlo simulation).
 2. Follow `README.txt` inside (copy the `.dll` into the game folder, add it to
    Hachimi's `load_libraries`, run the `.exe`).
 
-Hotkeys: **F8** hide · **F9** acceleration · **F6** rivals · **F10** %win rate · **F7** mouse mode.
+Hotkeys: **F8** hide · **F9** acceleration · **F6** rivals · **F10** %win rate · **F7** mouse mode · **F11** race map (replay window).
 
 ## Build (for developers)
 

@@ -9,12 +9,45 @@
 
 #![windows_subsystem = "windows"] // без консольного окна
 
+mod course;
+mod feedback;
 mod gamedata;
+mod replay;
 mod sim;
+mod theme;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+/// Версия для подписи фидбэка (релиз идёт как v0.2.0; Cargo-версия отстаёт).
+const APP_VERSION: &str = "0.2.0";
+
+/// Какое окно фидбэка открыто (одно за раз).
+#[derive(PartialEq, Clone, Copy)]
+enum FeedbackView {
+    Closed,
+    /// Меню-развилка: баг или идея.
+    Menu,
+    /// Окно бага: галочки «где произошло» + текст + приложить гонку.
+    Bug,
+    /// Окно идеи: только текст.
+    Idea,
+}
+
+/// Области приложения для галочек «где произошёл баг».
+const FB_AREAS: [&str; 9] = [
+    "Overlay table / display",
+    "Block analysis",
+    "Spurt data (accel/speed)",
+    "Win rate (%)",
+    "Mine / rivals filter",
+    "Mouse / clicking / window",
+    "Hotkeys",
+    "Startup / crash / freeze",
+    "Other",
+];
 
 use egui::{Color32, RichText};
 use egui_overlay::egui_render_three_d::ThreeDBackend;
@@ -22,7 +55,7 @@ use egui_overlay::egui_window_glfw_passthrough::GlfwBackend;
 use egui_overlay::EguiOverlay;
 use serde::{Deserialize, Serialize};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VK_F10, VK_F6, VK_F7, VK_F8, VK_F9,
+    GetAsyncKeyState, VK_F10, VK_F11, VK_F6, VK_F7, VK_F8, VK_F9,
 };
 
 #[derive(Deserialize, Clone, Default)]
@@ -84,13 +117,19 @@ struct Horse {
     /// Суммарное время во фронт-блоке (сек).
     #[serde(default)]
     blocked_time: f32,
+    /// Суммарное время во фронт-блоке ДО спурта (сек), «mid leg block».
+    #[serde(default)]
+    pre_spurt_blocked_time: f32,
     /// Число эпизодов блока.
     #[serde(default)]
     blocked_episodes: i32,
     /// Время в закидывании (掛かり), сек.
     #[serde(default)]
     kakari_time: f32,
-    /// Финишный отрыв до победителя (сек).
+    /// Абсолютное финишное время (сек) — для контрфактуального ранжирования.
+    #[serde(default)]
+    finish_time: f32,
+    /// `FinishDiffTime` = отрыв до лошади на одно место впереди (margin), НЕ до победителя.
     #[serde(default)]
     finish_diff_time: f32,
     /// Оценка потерянной из-за блока дистанции (м).
@@ -123,6 +162,17 @@ struct Horse {
     /// Оценка шанса победы 0..1 (вычисляется здесь; < 0 = нет данных).
     #[serde(skip)]
     win_chance: f32,
+    /// «Block kill»: на сколько мест трафик/блок изменил среднее место ИМЕННО этой
+    /// лошади по симулятору (avg_place с блок-моделью − без неё). >0 = блок стоил мест,
+    /// <0 = выиграла от зажатых соперников. NaN = ещё не посчитано симулятором.
+    #[serde(skip, default = "nan_f32")]
+    block_kill: f32,
+}
+
+/// Дефолт для не-сериализуемых f32-полей, у которых 0.0 — валидное значение
+/// (нужен признак «не посчитано»).
+fn nan_f32() -> f32 {
+    f32::NAN
 }
 
 impl Horse {
@@ -159,6 +209,17 @@ struct RaceSnapshot {
     /// не пишет → MAX → режим «до старта» просто не активируется.
     #[serde(default = "max_u64")]
     ctor_age_ms: u64,
+    /// Авто-детект курса из игры (RaceManager.RaceInfo → RaceCourseSet.Id).
+    /// 0 = неизвестно (старый плагин/не прочиталось) → фолбэк на ручной course_id.
+    #[serde(default)]
+    course_id: i32,
+    /// Тип гонки (`RaceInfo.RaceType`): обычная = 9, иное → метка события
+    /// (Champions Meeting и т.п.). 0 = неизвестно.
+    #[serde(default)]
+    race_type: i32,
+    /// `RaceInfo.RaceInstanceId`. 0 = неизвестно.
+    #[serde(default)]
+    race_instance_id: i32,
     #[serde(default)]
     horses: Vec<Horse>,
 }
@@ -194,6 +255,13 @@ struct Cfg {
     win_x: f32,
     #[serde(default = "nan")]
     win_y: f32,
+    /// Анонимный идентификатор установки для rate-limit фидбэка (без PII).
+    #[serde(default)]
+    install_id: String,
+    /// Выбранный курс трассы (course_id из course_data). None = синтетическая
+    /// геометрия (авто-детект из игры пока не сделан — задаётся вручную).
+    #[serde(default)]
+    course_id: Option<i32>,
 }
 
 fn default_true() -> bool {
@@ -212,6 +280,8 @@ impl Default for Cfg {
             show_chance: false,
             win_x: f32::NAN,
             win_y: f32::NAN,
+            install_id: String::new(),
+            course_id: None,
         }
     }
 }
@@ -374,6 +444,16 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Случайный анонимный идентификатор установки (32 hex-символа = 128 бит).
+/// Не содержит личных данных — нужен только серверу для rate-limit/чёрного списка.
+fn new_install_id() -> String {
+    let mut s = String::with_capacity(32);
+    for _ in 0..16 {
+        s.push_str(&format!("{:02x}", fastrand::u8(..)));
+    }
+    s
+}
+
 struct App {
     path: PathBuf,
     placed: bool,
@@ -401,13 +481,22 @@ struct App {
     f7_was_down: bool,
     f6_was_down: bool,
     f10_was_down: bool,
+    f11_was_down: bool,
     snapshot: RaceSnapshot,
     last_read: Instant,
     /// Данные master.mdb (скиллы, коэффициенты). None — БД не нашлась,
     /// винрейт падает обратно на простую эвристику по статам.
     gamedata: Option<std::sync::Arc<gamedata::GameData>>,
+    /// Таблица геометрии трасс (course_data.json рядом с exe). None — файла нет,
+    /// геометрия не используется (синтетика).
+    courses: Option<std::sync::Arc<HashMap<i32, course::CourseGeom>>>,
+    /// Выбранный курс (course_id) — пока вручную через cfg/UI (авто-детект из игры
+    /// не сделан). None = синтетическая геометрия.
+    course_id: Option<i32>,
+    /// Текстовый буфер ввода course_id в UI.
+    course_text: String,
     /// Готовый результат симуляции: (сигнатура гонки, винрейт по gate).
-    sim_slot: std::sync::Arc<std::sync::Mutex<Option<(u64, HashMap<i32, f32>)>>>,
+    sim_slot: std::sync::Arc<std::sync::Mutex<Option<(u64, HashMap<i32, (f32, f32)>)>>>,
     /// Симуляция уже крутится в фоне.
     sim_busy: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Сохранённая позиция окна таблицы (NaN = по умолчанию).
@@ -426,11 +515,41 @@ struct App {
     qr_tried: bool,
     /// Ссылка для доната (из «донат ссылка.txt» рядом с exe).
     donate_url: String,
+    /// Конфиг релея фидбэка (URL Worker + app-key). Токена бота в клиенте НЕТ.
+    relay_cfg: feedback::RelayConfig,
+    /// Анонимный идентификатор установки (для server-side rate-limit; без PII).
+    install_id: String,
+    /// Какое окно фидбэка сейчас открыто.
+    feedback_view: FeedbackView,
+    /// Галочки «где произошёл баг» (по FB_AREAS).
+    fb_areas: [bool; FB_AREAS.len()],
+    /// Текст репорта/идеи.
+    fb_text: String,
+    /// Контакт для ответа (опционально).
+    fb_contact: String,
+    /// Приложить ли к багу данные последней гонки (JSON-файл состояния).
+    fb_attach: bool,
+    /// Статус последней отправки (общий с фоновым потоком).
+    fb_status: feedback::Status,
+    /// Окно-реплей (трек + скиллы + ползунок) открыто.
+    replay_open: bool,
+    /// Загруженное состояние реплея (последний архив гонки). None — ещё не грузили
+    /// или архивов нет.
+    replay: Option<replay::ReplayState>,
 }
 
 impl App {
     fn new() -> Self {
-        let cfg = load_cfg();
+        let mut cfg = load_cfg();
+        // Анонимный install_id для server-side rate-limit. Генерим один раз и
+        // сохраняем; никаких личных данных — просто случайные 128 бит в hex.
+        if cfg.install_id.is_empty() {
+            cfg.install_id = new_install_id();
+            if let Ok(text) = serde_json::to_string_pretty(&cfg) {
+                let _ = std::fs::write(cfg_path(), text);
+            }
+        }
+        let install_id = cfg.install_id.clone();
         Self {
             path: state_path(),
             placed: false,
@@ -451,9 +570,16 @@ impl App {
             f7_was_down: false,
             f6_was_down: false,
             f10_was_down: false,
+            f11_was_down: false,
             snapshot: RaceSnapshot::default(),
             last_read: Instant::now() - Duration::from_secs(10),
             gamedata: gamedata::GameData::load().map(std::sync::Arc::new),
+            courses: asset_path("course_data.json")
+                .as_deref()
+                .and_then(course::load_courses)
+                .map(std::sync::Arc::new),
+            course_id: cfg.course_id,
+            course_text: cfg.course_id.map(|i| i.to_string()).unwrap_or_default(),
             sim_slot: std::sync::Arc::new(std::sync::Mutex::new(None)),
             sim_busy: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             win_pos: if cfg.win_x.is_finite() && cfg.win_y.is_finite() {
@@ -471,6 +597,16 @@ impl App {
                 .map(|s| s.trim().to_string())
                 .filter(|s| s.starts_with("http"))
                 .unwrap_or_else(|| "https://dalink.to/everlastingosu".to_string()),
+            relay_cfg: feedback::load_config(load_asset_string),
+            install_id,
+            feedback_view: FeedbackView::Closed,
+            fb_areas: [false; FB_AREAS.len()],
+            fb_text: String::new(),
+            fb_contact: String::new(),
+            fb_attach: false,
+            fb_status: Arc::new(Mutex::new(feedback::SendStatus::Idle)),
+            replay_open: false,
+            replay: None,
         }
     }
 
@@ -482,6 +618,8 @@ impl App {
             show_chance: self.show_chance,
             win_x: pos.x,
             win_y: pos.y,
+            install_id: self.install_id.clone(),
+            course_id: self.course_id,
         };
         if let Ok(text) = serde_json::to_string_pretty(&cfg) {
             let _ = std::fs::write(cfg_path(), text);
@@ -522,6 +660,26 @@ impl App {
         if Self::key_pressed(VK_F10.0 as i32, &mut self.f10_was_down) {
             self.show_chance = !self.show_chance;
             self.on_chance_enabled();
+        }
+        if Self::key_pressed(VK_F11.0 as i32, &mut self.f11_was_down) {
+            self.toggle_replay();
+        }
+    }
+
+    /// Открыть/закрыть окно-реплей. При открытии (пере)загружает самый свежий
+    /// архив гонки и считает привязки скиллов.
+    fn toggle_replay(&mut self) {
+        self.replay_open = !self.replay_open;
+        if self.replay_open {
+            self.load_replay();
+        }
+    }
+
+    /// Загрузить последний архив гонки в окно-реплей (если есть).
+    fn load_replay(&mut self) {
+        if let Some(race) = replay::load_latest() {
+            let gd = self.gamedata.as_deref();
+            self.replay = Some(replay::ReplayState::new(race, gd));
         }
     }
 
@@ -580,7 +738,21 @@ impl App {
             return;
         }
 
-        let distance = deduce_course_distance(horses).unwrap_or(2000.0) as f64;
+        // Курс: приоритет — авто-детект из игры (snapshot.course_id от плагина),
+        // фолбэк — ручной выбор (cfg/UI). >0 = валидный course_id.
+        let effective_course_id: Option<i32> = if self.snapshot.course_id > 0 {
+            Some(self.snapshot.course_id)
+        } else {
+            self.course_id
+        };
+        // course_id → реальная геометрия + точная дистанция.
+        // None = синтетика и дистанция из maxHP.
+        let geom: Option<course::CourseGeom> = effective_course_id
+            .and_then(|id| Some(self.courses.as_ref()?.get(&id)?.clone()));
+        let distance = geom
+            .as_ref()
+            .map(|g| g.distance)
+            .unwrap_or_else(|| deduce_course_distance(horses).unwrap_or(2000.0) as f64);
         // Тип трассы — большинством голосов по лошадям (gtype от плагина).
         let ground: i32 = {
             let dirt = horses.iter().filter(|h| h.gtype == 2).count();
@@ -596,6 +768,7 @@ impl App {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         (distance as i64).hash(&mut hasher);
         ground.hash(&mut hasher);
+        effective_course_id.hash(&mut hasher);
         for h in horses.iter() {
             h.gate.hash(&mut hasher);
             h.style.hash(&mut hasher);
@@ -613,8 +786,9 @@ impl App {
             if let Some((s, map)) = slot.as_ref() {
                 if *s == sig {
                     for h in horses.iter_mut() {
-                        if let Some(w) = map.get(&h.gate) {
+                        if let Some((w, bk)) = map.get(&h.gate) {
                             h.win_chance = *w;
+                            h.block_kill = *bk;
                         }
                     }
                     return;
@@ -668,13 +842,23 @@ impl App {
         std::thread::spawn(move || {
             // Состояние трассы (firm/good/soft/heavy) пока не извлекаем из игры —
             // считаем firm(良). Когда добавим — менять здесь.
-            let race = sim::RaceParams { distance, ground, condition: 1 };
-            // 500 прогонов: меньше шума выборки (~±1.5% на винрейте), TODO 5.2.
-            let res = sim::simulate(&gd, &race, &sim_horses, 500, sig);
-            let map: HashMap<i32, f32> = sim_horses
+            // course = выбранная вручную геометрия (cfg.course_id), иначе синтетика.
+            let race = sim::RaceParams { distance, ground, condition: 1, course: geom };
+            // 3000 прогонов: шум выборки ~±0.8% (ниже ошибки модели). simulate
+            // сам распараллеливает по ядрам, оставляя одно ядро игре.
+            let res = sim::simulate(&gd, &race, &sim_horses, 3000, sig);
+            // «Block kill»: тот же состав/сид, но модель трафика выключена → разница
+            // среднего места = на сколько мест блок сдвинул КАЖДУЮ лошадь.
+            let res_nb = sim::simulate_no_block(&gd, &race, &sim_horses, 3000, sig);
+            let map: HashMap<i32, (f32, f32)> = sim_horses
                 .iter()
-                .zip(res.win.iter())
-                .map(|(h, w)| (h.gate, *w as f32))
+                .enumerate()
+                .map(|(i, h)| {
+                    let win = res.win[i] as f32;
+                    // >0 = с блоком место ХУЖЕ (число больше) → блок стоил мест.
+                    let block_kill = (res.avg_place[i] - res_nb.avg_place[i]) as f32;
+                    (h.gate, (win, block_kill))
+                })
                 .collect();
             if let Ok(mut s) = slot.lock() {
                 *s = Some((sig, map));
@@ -685,13 +869,8 @@ impl App {
 }
 
 fn hp_color(pct: f32) -> Color32 {
-    if pct > 0.5 {
-        Color32::from_rgb(76, 217, 100)
-    } else if pct > 0.25 {
-        Color32::from_rgb(242, 196, 15)
-    } else {
-        Color32::from_rgb(230, 57, 53)
-    }
+    // Заливка бара HP — насыщенные тона, читаемые на светлом фоне (см. theme).
+    theme::hp_fill(pct)
 }
 
 impl EguiOverlay for App {
@@ -714,6 +893,9 @@ impl EguiOverlay for App {
             // Подмешиваем системные CJK/кириллические шрифты, чтобы ники игроков
             // не превращались в квадраты.
             install_system_fonts(egui_context);
+            // Светлая пастельная тема в стиле сайта (розовый/жёлтый/салатовый).
+            // Окно-реплей рисует трек своим тёмным фоном — тема его не трогает.
+            theme::install(egui_context);
         }
 
         self.poll_hotkeys();
@@ -790,26 +972,31 @@ impl EguiOverlay for App {
                 h.rank = rank_of.get(&h.gate).copied().unwrap_or(0);
             }
 
-            // Отрыв до лошади на одно место впереди (для оценки «стоил ли блок
-            // места»). Считаем по финишировавшим с готовой статистикой, по всему
-            // составу: gap = мой отрыв-до-победителя − отрыв соперника впереди.
+            // Отрыв до лошади на одно место впереди. `finish_diff_time` из игры
+            // (FinishDiffTime) — это и есть margin до соседа впереди; берём напрямую
+            // (раньше ошибочно дифференцировали как будто это отрыв-до-победителя).
             let mut gap_of: HashMap<i32, f32> = HashMap::new();
             let finished: Vec<&Horse> =
                 by_rank.iter().filter(|h| h.finished && h.stats_ready).collect();
             for w in finished.windows(2) {
-                let g = (w[1].finish_diff_time - w[0].finish_diff_time).max(0.0);
-                gap_of.insert(w[1].gate, g);
+                gap_of.insert(w[1].gate, w[1].finish_diff_time.max(0.0));
             }
             for h in &mut horses {
                 h.gap_ahead = gap_of.get(&h.gate).copied().unwrap_or(f32::NAN);
             }
 
-            // Контрфактуальное место «если бы спурт-блока не было НИ У КОГО»:
-            // каждому возвращаем его спурт-потерю времени и пересортировываем
-            // финишные времена. ct = отрыв_до_победителя − потеря_в_спурте.
+            // Контрфактуальное место «без блока» — из СИМУЛЯТОРА. apply_sim уже
+            // проставил `block_kill` = на сколько мест трафик сдвинул среднее место
+            // КАЖДОЙ лошади (avg место с блок-моделью − без неё, парное A/B). Возвращаем
+            // реальному месту этот сдвиг (score = место − block_kill) и пересортировываем
+            // всё поле. NaN (sim не готов) → сдвиг 0. Заменил старую эвристику
+            // «finish_time − спурт-потеря» на полноценную реинтеракцию из sim.
             let mut cf: Vec<(i32, f32)> = finished
                 .iter()
-                .map(|h| (h.gate, h.finish_diff_time - h.spurt_lost_time))
+                .map(|h| {
+                    let shift = if h.block_kill.is_nan() { 0.0 } else { h.block_kill };
+                    (h.gate, h.rank as f32 - shift)
+                })
                 .collect();
             cf.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
             let cf_place_of: HashMap<i32, i32> = cf
@@ -865,6 +1052,12 @@ impl EguiOverlay for App {
         if self.chance_disclaimer_open {
             self.show_chance_disclaimer(egui_context);
         }
+        if self.feedback_view != FeedbackView::Closed {
+            self.show_feedback(egui_context);
+        }
+        if self.replay_open {
+            self.show_replay(egui_context);
+        }
 
         // Окно сквозное, но когда курсор наведён на таблицу — автоматически
         // становится кликабельным (рекомендованный паттерн egui_overlay:
@@ -883,10 +1076,16 @@ impl App {
         // Позицию окна восстанавливаем из cfg (или дефолт), а после показа
         // запоминаем — чтобы перетаскивание на другой монитор сохранялось.
         let start_pos = self.win_pos.unwrap_or(egui::pos2(40.0, 90.0));
+        // open=false при клике по крестику в заголовке; collapsible=true даёт
+        // кнопку сворачивания (◀/▼) в шапке. Закрытие = спрятать оверлей (как F8).
+        let mut open = true;
         let resp = egui::Window::new("Race Overlay")
             .default_size([620.0, 470.0])
             .default_pos(start_pos)
+            .collapsible(true)
+            .open(&mut open)
             .show(ctx, |ui| {
+                let bg = theme::bg_reserve(ui);
                 if horses.is_empty() {
                     // Вне гонки — заметная заглушка, окно можно таскать.
                     ui.add_space(6.0);
@@ -895,7 +1094,7 @@ impl App {
                     ui.label(
                         RichText::new("Waiting for a race to start…")
                             .size(15.0)
-                            .color(Color32::from_rgb(255, 200, 80)),
+                            .color(theme::C_WARN),
                     );
                     ui.add_space(2.0);
                     ui.label(
@@ -912,7 +1111,10 @@ impl App {
                         RichText::new("F8 hide · F10 %win rate · F9 base accel · F6 rivals")
                             .weak(),
                     );
+                    ui.add_space(6.0);
+                    self.feedback_button(ui);
                     ui.add_space(4.0);
+                    theme::bg_fill(ui, bg);
                     return;
                 }
                 ui.horizontal(|ui| {
@@ -920,7 +1122,7 @@ impl App {
                     if finished {
                         ui.label(
                             RichText::new("● FINISHED — final results")
-                                .color(Color32::from_rgb(120, 230, 140))
+                                .color(theme::C_GOOD)
                                 .small(),
                         )
                         .on_hover_text("Last race results. Updates when the next race starts.");
@@ -929,7 +1131,7 @@ impl App {
                     } else if pre_race {
                         ui.label(
                             RichText::new("pre-race")
-                                .color(Color32::from_rgb(255, 200, 80))
+                                .color(theme::C_WARN)
                                 .small(),
                         );
                     }
@@ -990,6 +1192,7 @@ impl App {
                 );
                 ui.separator();
                 self.bottom_bar(ui);
+                theme::bg_fill(ui, bg);
             });
 
         // Запоминаем позицию окна после перетаскивания (с троттлингом записи).
@@ -1004,18 +1207,31 @@ impl App {
                 }
             }
         }
+
+        // Крестик в заголовке = полностью закрыть программу (выйти из процесса).
+        // Это то, чего ждёт пользователь от «закрыть». Временно спрятать оверлей —
+        // отдельная клавиша F8 (меняет visible), процесс при этом живёт.
+        if !open {
+            self.save_cfg();
+            std::process::exit(0);
+        }
     }
 
     /// Донат-окно при запуске приложения.
     fn show_donation(&mut self, ctx: &egui::Context) {
         // default_pos (а НЕ anchor!) — иначе окно прибито и не перетаскивается.
+        // open=крестик закрытия, collapsible=кнопка сворачивания в шапке.
+        let mut open = true;
         egui::Window::new("Support the developer 💜")
-            .collapsible(false)
+            .collapsible(true)
             .resizable(false)
+            .open(&mut open)
             .default_pos(primary_center_egui(380.0, 480.0))
             .show(ctx, |ui| {
+                let bg = theme::bg_reserve(ui);
                 ui.set_max_width(360.0);
                 ui.vertical_centered(|ui| {
+                    theme::uma_marks(ui);
                     ui.add_space(4.0);
                     ui.label(
                         RichText::new(
@@ -1052,7 +1268,7 @@ impl App {
                             .strong()
                             .color(Color32::WHITE),
                     )
-                    .fill(Color32::from_rgb(200, 60, 130))
+                    .fill(theme::PINK)
                     .min_size(egui::vec2(220.0, 34.0));
                     if ui
                         .add(donate_btn)
@@ -1066,7 +1282,7 @@ impl App {
                     ui.add(egui::Label::new(
                         RichText::new(&self.donate_url)
                             .small()
-                            .color(Color32::from_rgb(120, 200, 255)),
+                            .color(theme::C_MINE),
                     ));
                     ui.add_space(12.0);
 
@@ -1080,22 +1296,30 @@ impl App {
                         self.donation_open = false;
                     }
                 });
+                theme::bg_fill(ui, bg);
             });
+        // Крестик в заголовке = закрыть донат-окно (как кнопка Continue).
+        if !open {
+            self.donation_open = false;
+        }
     }
 
     /// Одноразовое (за запуск) окно-предупреждение при включении винрейта.
     fn show_chance_disclaimer(&mut self, ctx: &egui::Context) {
         // Рядом с таблицей (а не в центре всех мониторов).
         let near = self.win_pos.unwrap_or(egui::pos2(40.0, 90.0)) + egui::vec2(24.0, 70.0);
+        let mut open = true;
         egui::Window::new("%win rate — in development")
-            .collapsible(false)
+            .collapsible(true)
             .resizable(false)
+            .open(&mut open)
             .default_pos(near)
             .show(ctx, |ui| {
+                let bg = theme::bg_reserve(ui);
                 ui.set_max_width(360.0);
                 ui.label(
                     RichText::new("⚠ This feature is in development")
-                        .color(Color32::from_rgb(255, 200, 80))
+                        .color(theme::C_WARN)
                         .strong(),
                 );
                 ui.add_space(4.0);
@@ -1111,12 +1335,96 @@ impl App {
                         self.chance_disclaimer_open = false;
                     }
                 });
+                theme::bg_fill(ui, bg);
             });
+        if !open {
+            self.chance_disclaimer_open = false;
+        }
     }
 
-    /// Bottom bar: rivals toggle and manual "my trainer" pick.
+    /// Окно-реплей: трек с маркерами скиллов, ползунок времени, живые статы.
+    /// Геометрию курса берём из таблицы по course_id архива (для раскраски трека).
+    fn show_replay(&mut self, ctx: &egui::Context) {
+        let gd = self.gamedata.clone();
+        // Геометрия курса для раскраски трека (опционально).
+        let geom: Option<course::CourseGeom> = self.replay.as_ref().and_then(|r| {
+            let cid = r.race.course_id;
+            self.courses.as_ref()?.get(&cid).cloned()
+        });
+        // Размер/позиция: вписываем в ОСНОВНОЙ монитор (не растягиваем на все
+        // экраны) и центрируем — окно широкое (горизонтальный график).
+        let win_w = 1240.0_f32;
+        let win_h = 620.0_f32;
+        let center = primary_center_egui(win_w, win_h);
+        let mut open = true;
+        // Отдельный флаг для крестика в заголовке (нельзя одолжить `open` дважды:
+        // он же используется внутренней кнопкой «✕ Close»).
+        let mut win_open = true;
+        let mut reload = false;
+        let replay = &mut self.replay;
+        // Крестик в заголовке + сворачивание (collapsible по умолчанию). ВАЖНО:
+        // сам трек/поле (r.ui) не трогаем — оно рисует свой тёмный фон и не
+        // зависит от темы.
+        egui::Window::new("📈 Race map")
+            .default_size([win_w, win_h])
+            .collapsible(true)
+            .open(&mut win_open)
+            .default_pos(center)
+            .show(ctx, |ui| {
+                let bg = theme::bg_reserve(ui);
+                ui.horizontal(|ui| {
+                    if ui
+                        .button("⟳ Reload latest")
+                        .on_hover_text("Load the most recently finished race again.")
+                        .clicked()
+                    {
+                        reload = true;
+                    }
+                    if ui.button("✕ Close").clicked() {
+                        open = false;
+                    }
+                });
+                ui.separator();
+                match replay.as_mut() {
+                    Some(r) => r.ui(ui, gd.as_deref(), geom.as_ref()),
+                    None => {
+                        ui.add_space(6.0);
+                        ui.label(
+                            RichText::new("No saved race found yet.")
+                                .size(15.0)
+                                .color(theme::C_WARN),
+                        );
+                        ui.label("Finish a race (it is archived automatically), then reload.");
+                    }
+                }
+                theme::bg_fill(ui, bg);
+            });
+        // Закрыть по внутренней кнопке ИЛИ по крестику в заголовке окна.
+        if !open || !win_open {
+            self.replay_open = false;
+        }
+        if reload {
+            self.load_replay();
+        }
+    }
+
+    /// Bottom bar: rivals toggle, manual "my trainer" pick, feedback button.
     fn bottom_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
+            self.feedback_button(ui);
+            ui.separator();
+            if ui
+                .button("📈 Race map")
+                .on_hover_text(
+                    "Open the race replay: stylized track with where each girl\n\
+                     used which skill, a time scrubber and live stats (key F11).\n\
+                     Shows the most recently finished race.",
+                )
+                .clicked()
+            {
+                self.toggle_replay();
+            }
+            ui.separator();
             if ui
                 .checkbox(&mut self.show_enemies, "👥 rivals")
                 .on_hover_text("Show other players' horses (key F6).")
@@ -1147,7 +1455,362 @@ impl App {
                     }
                 }
             }
+
+            // Курс трассы (course_id) для реальной геометрии. Приоритет — авто-детект
+            // из игры; ручной ввод остаётся фолбэком, когда авто недоступен.
+            // Видно при включённом win rate.
+            if self.show_chance && self.courses.is_some() {
+                ui.separator();
+                let auto = self.snapshot.course_id;
+                if auto > 0 {
+                    // Курс определён игрой — показываем и помечаем, есть ли в таблице.
+                    let ok = self
+                        .courses
+                        .as_ref()
+                        .and_then(|c| c.get(&auto))
+                        .is_some();
+                    ui.label(RichText::new("course:").weak())
+                        .on_hover_text("Auto-detected from the game (RaceCourseSet id).");
+                    ui.label(RichText::new(format!("auto {}", auto)).weak());
+                    let mark = if ok {
+                        RichText::new("✓").color(theme::C_GOOD)
+                    } else {
+                        RichText::new("not in table").color(Color32::from_rgb(230, 57, 53))
+                    };
+                    ui.label(mark);
+                } else {
+                    // Авто недоступно (старый плагин/вне гонки) — ручной ввод.
+                    ui.label(RichText::new("course:").weak()).on_hover_text(
+                        "Course id (e.g. Hanshin 2200m = 10906). Empty = generic geometry.",
+                    );
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut self.course_text)
+                            .desired_width(56.0)
+                            .hint_text("id"),
+                    );
+                    if resp.changed() {
+                        self.course_id = self.course_text.trim().parse::<i32>().ok();
+                        self.save_cfg();
+                    }
+                    let ok = self
+                        .course_id
+                        .and_then(|id| self.courses.as_ref()?.get(&id))
+                        .is_some();
+                    let mark = match (self.course_id, ok) {
+                        (None, _) => RichText::new("generic").weak(),
+                        (Some(_), true) => RichText::new("✓").color(theme::C_GOOD),
+                        (Some(_), false) => {
+                            RichText::new("not found").color(Color32::from_rgb(230, 57, 53))
+                        }
+                    };
+                    ui.label(mark);
+                }
+            }
         });
+    }
+
+    /// Кнопка-открывашка фидбэка (в нижней панели и в заглушке «waiting»).
+    fn feedback_button(&mut self, ui: &mut egui::Ui) {
+        if ui
+            .button("✉ Feedback")
+            .on_hover_text("Report a bug or suggest an idea (sends to the developer).")
+            .clicked()
+        {
+            self.feedback_view = FeedbackView::Menu;
+        }
+    }
+
+    /// Сбрасывает поля формы и открывает указанное окно фидбэка.
+    fn fb_open(&mut self, view: FeedbackView) {
+        self.fb_areas = [false; FB_AREAS.len()];
+        self.fb_text.clear();
+        self.fb_contact.clear();
+        // По умолчанию прикладываем гонку, если есть завершённая.
+        self.fb_attach = self.frozen.is_some();
+        if let Ok(mut s) = self.fb_status.lock() {
+            *s = feedback::SendStatus::Idle;
+        }
+        self.feedback_view = view;
+    }
+
+    /// Сводка активных тоглов (контекст для бага — компактно, не напрягает).
+    fn toggles_summary(&self) -> String {
+        let mut v: Vec<&str> = Vec::new();
+        if self.show_accel {
+            v.push("accel");
+        }
+        if self.show_spurt {
+            v.push("spurt");
+        }
+        if self.show_block {
+            v.push("block");
+        }
+        if self.show_chance {
+            v.push("win%");
+        }
+        if self.show_enemies {
+            v.push("rivals");
+        }
+        if v.is_empty() {
+            "none".to_string()
+        } else {
+            v.join(",")
+        }
+    }
+
+    /// Выбранные области бага («где произошло») через запятую.
+    fn fb_areas_str(&self) -> String {
+        FB_AREAS
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| self.fb_areas[*i])
+            .map(|(_, n)| *n)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// Отправляет текущую форму (баг или идея) на релей в фоне. Формат сообщения
+    /// собирает Worker — клиент шлёт только структурированные поля + анонимный id.
+    fn fb_send(&mut self, bug: bool) {
+        if !self.relay_cfg.configured() || self.fb_text.trim().is_empty() {
+            return;
+        }
+        // Снимок гонки делаем здесь (в UI-потоке), чтобы фоновую отправку не
+        // затронула перезапись живого state.json следующей гонкой.
+        let race = if bug && self.fb_attach {
+            std::fs::read(&self.path).ok()
+        } else {
+            None
+        };
+        let report = feedback::Report {
+            install_id: self.install_id.clone(),
+            kind_bug: bug,
+            text: self.fb_text.trim().to_string(),
+            contact: self.fb_contact.trim().to_string(),
+            areas: if bug { self.fb_areas_str() } else { String::new() },
+            toggles: if bug { self.toggles_summary() } else { String::new() },
+            app_version: APP_VERSION.to_string(),
+            os: std::env::consts::OS.to_string(),
+            race,
+        };
+        feedback::spawn_send(self.relay_cfg.clone(), report, Arc::clone(&self.fb_status));
+    }
+
+    /// Рисует окно фидбэка (меню / баг / идея) в зависимости от feedback_view.
+    fn show_feedback(&mut self, ctx: &egui::Context) {
+        match self.feedback_view {
+            FeedbackView::Menu => self.show_feedback_menu(ctx),
+            FeedbackView::Bug => self.show_feedback_form(ctx, true),
+            FeedbackView::Idea => self.show_feedback_form(ctx, false),
+            FeedbackView::Closed => {}
+        }
+    }
+
+    fn show_feedback_menu(&mut self, ctx: &egui::Context) {
+        let near = self.win_pos.unwrap_or(egui::pos2(40.0, 90.0)) + egui::vec2(40.0, 60.0);
+        let mut open = true;
+        egui::Window::new("Send feedback ✉")
+            .collapsible(true)
+            .resizable(false)
+            .open(&mut open)
+            .default_pos(near)
+            .show(ctx, |ui| {
+                let bg = theme::bg_reserve(ui);
+                ui.set_max_width(280.0);
+                theme::uma_marks(ui);
+                ui.label("Help improve the overlay — pick one:");
+                ui.add_space(8.0);
+                if ui
+                    .add(
+                        egui::Button::new(RichText::new("🐞  Report a bug").size(15.0))
+                            .min_size(egui::vec2(240.0, 32.0)),
+                    )
+                    .clicked()
+                {
+                    self.fb_open(FeedbackView::Bug);
+                }
+                ui.add_space(4.0);
+                if ui
+                    .add(
+                        egui::Button::new(RichText::new("💡  Suggest an idea").size(15.0))
+                            .min_size(egui::vec2(240.0, 32.0)),
+                    )
+                    .clicked()
+                {
+                    self.fb_open(FeedbackView::Idea);
+                }
+                ui.add_space(8.0);
+                ui.vertical_centered(|ui| {
+                    if ui.button("Close").clicked() {
+                        self.feedback_view = FeedbackView::Closed;
+                    }
+                });
+                theme::bg_fill(ui, bg);
+            });
+        if !open {
+            self.feedback_view = FeedbackView::Closed;
+        }
+    }
+
+    /// Общая форма для бага (`bug=true`, с галочками + приложить гонку) и
+    /// идеи (`bug=false`, только текст).
+    fn show_feedback_form(&mut self, ctx: &egui::Context, bug: bool) {
+        let near = self.win_pos.unwrap_or(egui::pos2(40.0, 90.0)) + egui::vec2(40.0, 60.0);
+        let title = if bug { "🐞 Report a bug" } else { "💡 Suggest an idea" };
+        let status = self.fb_status.lock().map(|s| s.clone()).unwrap_or(feedback::SendStatus::Idle);
+        let sending = status == feedback::SendStatus::Sending;
+        let sent = status == feedback::SendStatus::Sent;
+
+        let mut open = true;
+        egui::Window::new(title)
+            .collapsible(true)
+            .resizable(false)
+            .open(&mut open)
+            .default_pos(near)
+            .show(ctx, |ui| {
+                let bg = theme::bg_reserve(ui);
+                ui.set_max_width(360.0);
+
+                if sent {
+                    // После успешной отправки — благодарность вместо формы.
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new("✓ Sent — thank you!")
+                            .color(theme::C_GOOD)
+                            .size(15.0)
+                            .strong(),
+                    );
+                    ui.add_space(8.0);
+                    ui.vertical_centered(|ui| {
+                        if ui.button("Close").clicked() {
+                            self.feedback_view = FeedbackView::Closed;
+                        }
+                    });
+                    theme::bg_fill(ui, bg);
+                    return;
+                }
+
+                if bug {
+                    ui.label(RichText::new("Where did it happen?").strong());
+                    ui.add_space(2.0);
+                    egui::Grid::new("fb_areas").num_columns(2).spacing([12.0, 2.0]).show(
+                        ui,
+                        |ui| {
+                            for (i, name) in FB_AREAS.iter().enumerate() {
+                                ui.checkbox(&mut self.fb_areas[i], *name);
+                                if i % 2 == 1 {
+                                    ui.end_row();
+                                }
+                            }
+                        },
+                    );
+                    ui.add_space(6.0);
+                    ui.label(RichText::new("Describe the bug:").strong());
+                } else {
+                    ui.label(RichText::new("Your idea / suggestion:").strong());
+                }
+
+                ui.add(
+                    egui::TextEdit::multiline(&mut self.fb_text)
+                        .desired_rows(4)
+                        .desired_width(f32::INFINITY)
+                        .hint_text(if bug {
+                            "Steps to reproduce, what you expected vs what happened…"
+                        } else {
+                            "What would you like added or changed?"
+                        }),
+                );
+                ui.add_space(4.0);
+
+                if bug {
+                    let has_race = self.frozen.is_some();
+                    ui.add_enabled_ui(has_race, |ui| {
+                        ui.checkbox(&mut self.fb_attach, "Attach last race data")
+                            .on_hover_text(
+                                "Sends the finished race (horses, blocks, skills) as a\n\
+                                 file so the bug can be reproduced. No personal data.",
+                            );
+                    });
+                    if !has_race {
+                        ui.label(
+                            RichText::new("(no finished race to attach yet)")
+                                .weak()
+                                .small(),
+                        );
+                    }
+                    ui.add_space(4.0);
+                }
+
+                ui.horizontal(|ui| {
+                    ui.label("Contact (optional):");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.fb_contact)
+                            .desired_width(200.0)
+                            .hint_text("Telegram / Discord — so I can reply"),
+                    );
+                });
+                ui.add_space(6.0);
+
+                if !self.relay_cfg.configured() {
+                    ui.label(
+                        RichText::new("⚠ Feedback is not configured in this build yet.")
+                            .color(theme::C_WARN)
+                            .small(),
+                    );
+                    ui.add_space(4.0);
+                }
+
+                ui.horizontal(|ui| {
+                    let can_send = self.relay_cfg.configured()
+                        && !self.fb_text.trim().is_empty()
+                        && !sending;
+                    if ui
+                        .add_enabled(can_send, egui::Button::new(RichText::new("Send").strong()))
+                        .clicked()
+                    {
+                        self.fb_send(bug);
+                    }
+                    if ui.button("Back").clicked() {
+                        self.feedback_view = FeedbackView::Menu;
+                    }
+                    if ui.button("Close").clicked() {
+                        self.feedback_view = FeedbackView::Closed;
+                    }
+                    match &status {
+                        feedback::SendStatus::Sending => {
+                            ui.label(RichText::new("sending…").weak());
+                        }
+                        feedback::SendStatus::RateLimited(min) => {
+                            ui.label(
+                                RichText::new(format!(
+                                    "⏳ Too soon — please wait ~{min} min and try again."
+                                ))
+                                .color(theme::C_WARN)
+                                .small(),
+                            );
+                        }
+                        feedback::SendStatus::Blocked => {
+                            ui.label(
+                                RichText::new("✗ Couldn't send (too many requests).")
+                                    .color(theme::C_BAD)
+                                    .small(),
+                            );
+                        }
+                        feedback::SendStatus::Failed(e) => {
+                            ui.label(
+                                RichText::new(format!("✗ failed: {e}"))
+                                    .color(theme::C_BAD)
+                                    .small(),
+                            );
+                        }
+                        _ => {}
+                    }
+                });
+                theme::bg_fill(ui, bg);
+            });
+        if !open {
+            self.feedback_view = FeedbackView::Closed;
+        }
     }
 }
 
@@ -1318,7 +1981,7 @@ fn race_table(
         + usize::from(show_chance)
         + if show_accel { 1 } else { 0 }
         + if show_spurt { 2 } else { 0 }
-        + if show_block { 2 } else { 0 };
+        + if show_block { 3 } else { 0 };
     egui::Grid::new("horses")
         .num_columns(cols)
         .striped(true)
@@ -1346,17 +2009,23 @@ fn race_table(
                     .on_hover_text("Max achieved speed during spurt (m/s).");
             }
             if show_block {
+                ui.label(RichText::new("mid leg block").strong()).on_hover_text(
+                    "Total time spent blocked from the front BEFORE the spurt began\n\
+                     (early + middle leg), in seconds. Block here rarely costs the\n\
+                     race — it mostly resolves before the decisive stage — but it\n\
+                     shows how congested the horse's trip was.",
+                );
                 ui.label(RichText::new("spurt block").strong()).on_hover_text(
                     "Time spent blocked from the front DURING the spurt\n\
                      (and episode count). Block in the spurt is what really\n\
                      hurts — it chokes acceleration at the decisive stage.",
                 );
                 ui.label(RichText::new("place w/o block").strong()).on_hover_text(
-                    "Counterfactual finishing place if NOBODY had been blocked in\n\
-                     the spurt: each horse gets its spurt-block time loss back and\n\
-                     the finish times are re-ranked. 'P5→P2' = would have placed 2nd.\n\
-                     '?' = blocked through the finish, so the loss is under-counted.\n\
-                     An estimate from real race data, not a guarantee.",
+                    "Counterfactual finishing place if NOBODY had been blocked,\n\
+                     from the win-rate simulator: the field is run WITH vs WITHOUT the\n\
+                     blocking model, each horse's real place is shifted by its modeled\n\
+                     block effect, then re-ranked. 'P5→P2' = would have placed 2nd.\n\
+                     Hover a cell for the exact place delta. A model estimate, not a guarantee.",
                 );
             }
             ui.end_row();
@@ -1367,7 +2036,7 @@ fn race_table(
                 // по имени тренера).
                 if h.is_user || (!my_trainer.is_empty() && h.trainer == my_trainer) {
                     ui.label(
-                        RichText::new(horse_label(h)).color(Color32::from_rgb(120, 200, 255)),
+                        RichText::new(horse_label(h)).color(theme::C_MINE),
                     );
                 } else {
                     ui.label(horse_label(h));
@@ -1378,9 +2047,9 @@ fn race_table(
                         let p = h.win_chance;
                         // фавориты зелёные, аутсайдеры серые
                         let col = if p >= 0.20 {
-                            Color32::from_rgb(76, 217, 100)
+                            theme::C_GOOD
                         } else if p >= 0.10 {
-                            Color32::from_rgb(220, 220, 160)
+                            theme::C_FADE
                         } else {
                             Color32::GRAY
                         };
@@ -1437,7 +2106,7 @@ fn race_table(
                     // ускорение: зелёное при разгоне, красное при торможении
                     let acc = h.accel;
                     let col = if acc > 0.02 {
-                        Color32::from_rgb(76, 217, 100)
+                        theme::C_GOOD
                     } else if acc < -0.02 {
                         Color32::from_rgb(230, 57, 53)
                     } else {
@@ -1452,7 +2121,7 @@ fn race_table(
                     if peak > 0.0 {
                         ui.label(
                             RichText::new(format!("{:.2}", peak))
-                                .color(Color32::from_rgb(255, 170, 60))
+                                .color(theme::C_SPURT)
                                 .strong()
                                 .monospace(),
                         );
@@ -1464,7 +2133,7 @@ fn race_table(
                     if sp > 0.0 {
                         ui.label(
                             RichText::new(format!("{:.2} m/s", sp))
-                                .color(Color32::from_rgb(255, 170, 60))
+                                .color(theme::C_SPURT)
                                 .strong()
                                 .monospace(),
                         );
@@ -1474,23 +2143,37 @@ fn race_table(
                 }
 
                 if show_block {
-                    let green = Color32::from_rgb(76, 217, 100);
-                    let orange = Color32::from_rgb(255, 170, 60);
+                    let green = theme::C_GOOD;
+                    let orange = theme::C_SPURT;
                     let red = Color32::from_rgb(230, 57, 53);
                     // Тултип со справкой по полному блоку/закидыванию.
                     let detail = format!(
                         "Total front block (any phase): {:.1}s ×{}. Kakari: {:.1}s.",
                         h.blocked_time, h.blocked_episodes, h.kakari_time
                     );
+                    // Колонка «mid leg block»: суммарный блок ДО спурта (сек).
                     if !h.stats_ready {
-                        // считается на финише гонки
                         ui.label(RichText::new("—").weak());
+                    } else if h.pre_spurt_blocked_time < 0.05 {
+                        ui.label(RichText::new("clean").color(green).monospace())
+                            .on_hover_text(format!("No front block before the spurt.\n{}", detail));
+                    } else {
+                        ui.label(
+                            RichText::new(format!("{:.1}s", h.pre_spurt_blocked_time))
+                                .color(orange)
+                                .monospace(),
+                        )
+                        .on_hover_text(format!(
+                            "Blocked {:.1}s before the spurt (early + middle leg).\n{}",
+                            h.pre_spurt_blocked_time, detail
+                        ));
+                    }
+                    // Колонка «spurt block»: блок В СПУРТЕ (по реальным кадрам).
+                    if !h.stats_ready {
                         ui.label(RichText::new("—").weak());
                     } else if h.spurt_blocked_time < 0.05 {
                         ui.label(RichText::new("clean").color(green).monospace())
                             .on_hover_text(format!("No block during the spurt.\n{}", detail));
-                        ui.label(RichText::new("—").weak())
-                            .on_hover_text("No spurt block — could not have cost the win this way.");
                     } else {
                         ui.label(
                             RichText::new(format!(
@@ -1505,41 +2188,41 @@ fn race_table(
                              (~{:.0} m lost).\n{}",
                             h.spurt_blocked_time, h.spurt_blocked_episodes, h.spurt_lost_dist, detail
                         ));
-                        // «место без блока» — контрфактуальное место, если вернуть
-                        // спурт-потерю ВСЕМ и пересортировать финишные времена.
-                        let cf = h.cf_place;
-                        let unres = if h.spurt_unresolved { " ?" } else { "" };
-                        let tip = format!(
-                            "Counterfactual place if nobody was blocked in the spurt.\n\
-                             Estimated time lost to the spurt block: ~{:.2}s (~{:.0} m).\n\
-                             Gap to winner: {:.2}s.{}",
-                            h.spurt_lost_time,
-                            h.spurt_lost_dist,
-                            h.finish_diff_time,
-                            if h.spurt_unresolved {
-                                "\n? = blocked through the finish — loss under-counted."
-                            } else {
-                                ""
-                            }
-                        );
-                        if cf == 0 {
-                            ui.label(RichText::new("—").weak());
-                        } else if cf < h.rank {
-                            // без блока приехал бы выше
-                            let col = if cf == 1 { red } else { orange };
-                            ui.label(
-                                RichText::new(format!("P{}→P{}{}", h.rank, cf, unres))
-                                    .color(col)
-                                    .strong(),
-                            )
-                            .on_hover_text(format!(
-                                "{}\nWould have placed higher without the spurt block.",
-                                tip
-                            ));
-                        } else {
-                            ui.label(RichText::new(format!("P{}{}", h.rank, unres)).weak())
-                                .on_hover_text(format!("{}\nSame place without the spurt block.", tip));
-                        }
+                    }
+
+                    // Колонка «place w/o block»: контрфактуальное МЕСТО из симулятора
+                    // (реальному месту возвращён модельный эффект блока, поле пересортировано).
+                    // Точная дельта мест (block_kill) — в тултипе. cf==0 → sim ещё не готов.
+                    let cf = h.cf_place;
+                    let bk = h.block_kill;
+                    let delta_line = if bk.is_nan() {
+                        "Model block impact: simulating…".to_string()
+                    } else {
+                        format!("Model block impact on this horse: {:+.1} places (avg).", bk)
+                    };
+                    let tip = format!(
+                        "Counterfactual finishing place from the win-rate simulator:\n\
+                         the field is run WITH vs WITHOUT the blocking model, and each\n\
+                         horse's real place is shifted by its modeled block effect, then re-ranked.\n\
+                         {}\n\
+                         A model estimate, not this exact race's outcome.",
+                        delta_line
+                    );
+                    if cf == 0 {
+                        ui.label(RichText::new("—").weak())
+                            .on_hover_text("Counterfactual place — simulating…");
+                    } else if cf < h.rank {
+                        // без блока приехал бы ВЫШЕ
+                        let col = if cf == 1 { red } else { orange };
+                        ui.label(RichText::new(format!("P{}→P{}", h.rank, cf)).color(col).strong())
+                            .on_hover_text(format!("{}\nWould have placed higher without the block.", tip));
+                    } else if cf > h.rank {
+                        // без блока приехал бы НИЖЕ — выиграл от зажатых соперников
+                        ui.label(RichText::new(format!("P{}→P{}", h.rank, cf)).color(green))
+                            .on_hover_text(format!("{}\nBenefited from rivals being boxed in.", tip));
+                    } else {
+                        ui.label(RichText::new(format!("P{}", h.rank)).weak())
+                            .on_hover_text(format!("{}\nSame place without the block.", tip));
                     }
                 }
                 ui.end_row();

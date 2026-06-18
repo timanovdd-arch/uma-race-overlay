@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UMA-RACE Overlay</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700&display=swap');
+
+:root{
+  --bg:#FFF4F8; --ink:#4E243C; --ink-soft:#8C6479; --hint:#B49AA8;
+  --pink:#FF5C9A; --pink-soft:#FFD9E7; --pink-tint:#FFEAF2; --pink-ink:#A52A5E;
+  --yellow:#FFC83D; --yellow-soft:#FFE9AE; --yellow-ink:#946100;
+  --green:#56B85A; --green-soft:#DCF1D6; --green-tint:#EDF8E9; --green-ink:#2C6B2E;
+  --card:#FFFFFF; --line:rgba(78,36,60,.08);
+  --shadow:0 8px 24px rgba(255,92,154,.12);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; color:var(--ink);
+  font-family:'Nunito',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  -webkit-font-smoothing:antialiased;
+  background:
+    radial-gradient(1100px 480px at 12% -12%, #FFE2EE 0%, transparent 58%),
+    radial-gradient(1000px 460px at 96% -6%, #FFF1C9 0%, transparent 52%),
+    var(--bg);
+  min-height:100vh;
+}
+body::before{
+  content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+  background-image:repeating-linear-gradient(118deg, rgba(255,92,154,.045) 0 2px, transparent 2px 30px);
+}
+.wrap{position:relative; z-index:1; max-width:1480px; margin:0 auto; padding:22px 30px 48px;}
+
+.topbar{display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:22px; flex-wrap:wrap;}
+.brand{display:flex; align-items:center; gap:13px;}
+.emblem{width:48px; height:48px; border-radius:15px; background:linear-gradient(145deg,#FF77AC,#FF4F8E);
+  display:flex; align-items:center; justify-content:center; color:#fff; box-shadow:0 6px 14px rgba(255,79,142,.4); flex:none;}
+.emblem svg{width:26px; height:26px}
+.wordmark{font-family:'Fredoka',sans-serif; font-weight:700; font-size:26px; letter-spacing:.5px; line-height:1; color:var(--ink);}
+.wordmark span{color:var(--pink);}
+.wordmark small{display:block; font-family:'Nunito',sans-serif; font-weight:600; font-size:11px; letter-spacing:2.5px; color:var(--hint); text-transform:uppercase; margin-top:3px;}
+
+.cm-select{display:flex; align-items:center; gap:10px; background:var(--yellow); color:var(--yellow-ink);
+  font-family:'Fredoka',sans-serif; font-weight:600; font-size:15px; padding:11px 16px; border-radius:14px;
+  border:none; cursor:pointer; box-shadow:0 5px 14px rgba(255,200,61,.45); transition:transform .14s;}
+.cm-select:hover{transform:translateY(-1px)}
+.cm-select .cap{font-size:10px; letter-spacing:1.5px; text-transform:uppercase; opacity:.75; display:block; font-family:'Nunito'; font-weight:700;}
+.cm-select svg{width:18px; height:18px}
+
+.grid{display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:stretch;}
+.col{display:flex; flex-direction:column; gap:18px;}
+.grow{flex:1;}
+
+.card{background:var(--card); border-radius:22px; box-shadow:var(--shadow); padding:18px 20px 20px;
+  border:1px solid var(--line); transition:transform .15s ease, box-shadow .15s ease;}
+.card:hover{transform:translateY(-2px); box-shadow:0 12px 30px rgba(255,92,154,.16);}
+.card-hd{display:flex; align-items:center; gap:11px; margin-bottom:14px;}
+.chip{width:34px; height:34px; border-radius:11px; display:flex; align-items:center; justify-content:center; flex:none;}
+.chip svg{width:19px; height:19px}
+.chip-pink{background:var(--pink-tint); color:var(--pink);}
+.chip-green{background:var(--green-tint); color:var(--green);}
+.chip-yellow{background:var(--yellow-soft); color:var(--yellow-ink);}
+.card-hd h2{margin:0; font-family:'Fredoka',sans-serif; font-weight:600; font-size:18px; color:var(--ink);}
+.card-hd .star{margin-left:auto; color:var(--yellow); width:16px; height:16px;}
+
+.plot-wrap{position:relative; height:268px; margin-left:34px; margin-top:2px;}
+.plot{position:absolute; left:0; right:14px; top:10px; bottom:30px;}
+.axis-y{position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--pink-soft); border-radius:2px;}
+.axis-mid{position:absolute; left:50%; top:0; bottom:0; width:1px; background:rgba(255,92,154,.12);}
+.gl{position:absolute; left:0; right:0; height:1px; background:rgba(78,36,60,.06);}
+.gl.base{height:2px; background:var(--pink-soft); border-radius:2px;}
+.yl{position:absolute; right:calc(100% + 7px); transform:translateY(-50%); font-size:11px; font-weight:700; color:var(--ink-soft);}
+.xl{position:absolute; bottom:8px; font-size:11px; font-weight:700; color:var(--ink-soft);}
+.xtitle{position:absolute; right:14px; bottom:-10px; font-size:11px; color:var(--hint); font-weight:700;}
+.mk{position:absolute; width:42px; height:42px; border-radius:13px; background:#fff;
+  display:flex; align-items:center; justify-content:center; transform:translate(-50%,-50%);
+  border:2.5px solid var(--pink-soft); color:var(--pink); box-shadow:0 4px 10px rgba(255,92,154,.22);}
+.mk svg{width:24px; height:24px}
+.mk .nm{position:absolute; top:46px; left:50%; transform:translateX(-50%); white-space:nowrap; font-size:11px; font-weight:700; color:var(--ink-soft);}
+.mk.gold{border-color:var(--yellow);}
+.mk .paid{position:absolute; top:-9px; right:-9px; width:20px; height:20px; border-radius:50%;
+  background:var(--yellow); color:#fff; display:flex; align-items:center; justify-content:center; border:2.5px solid #fff; box-shadow:0 2px 6px rgba(255,200,61,.6);}
+.mk .paid svg{width:11px; height:11px}
+
+.tiers{display:flex; flex-direction:column; gap:9px;}
+.tier{display:flex; align-items:center; gap:11px; background:var(--pink-tint); border-radius:15px; padding:8px 10px;}
+.tl{width:46px; height:46px; flex:none; display:flex; align-items:center; justify-content:center;
+  font-family:'Fredoka',sans-serif; font-size:19px; font-weight:700; border-radius:12px; color:#fff;}
+.tl.ss{background:linear-gradient(145deg,#FFD45A,#FFB838); color:#7a5200;}
+.tl.s{background:linear-gradient(145deg,#FF77AC,#FF4F8E);}
+.tl.a{background:linear-gradient(145deg,#FFA8C9,#FF87B4);}
+.tl.b{background:linear-gradient(145deg,#C9B6C2,#B49AA8);}
+.slots{flex:1; display:flex; gap:9px; flex-wrap:wrap;}
+.pf{width:48px; height:48px; border-radius:13px; background:#fff; color:var(--pink);
+  display:flex; align-items:center; justify-content:center; box-shadow:0 3px 8px rgba(255,92,154,.18); border:1px solid var(--pink-soft);}
+.pf svg{width:25px; height:25px}
+
+.track-card{text-align:center;}
+.track-stage{position:relative; display:flex; align-items:center; justify-content:center; padding:6px 0 2px;}
+.track-stage svg{width:320px; max-width:100%; height:140px}
+.dist-badge{position:absolute; top:8px; right:8px; background:var(--green); color:#fff; font-family:'Fredoka',sans-serif;
+  font-weight:700; font-size:13px; padding:5px 12px; border-radius:11px; box-shadow:0 4px 10px rgba(86,184,90,.4);}
+
+.info{display:flex; flex-direction:column; gap:11px;}
+.info-row{display:flex; align-items:center; gap:11px; font-size:14px;}
+.dot{width:9px; height:9px; border-radius:50%; background:var(--green); flex:none;}
+.info-row .lbl{color:var(--ink-soft); width:96px; flex:none;}
+.info-row .val{font-weight:700; color:var(--ink);}
+.tags{display:flex; gap:7px; flex-wrap:wrap;}
+.tag{font-size:12px; font-weight:700; padding:5px 12px; border-radius:999px;}
+.tag.g{background:var(--green-tint); color:var(--green-ink);}
+
+.tips{display:flex; flex-direction:column; gap:10px; font-size:13.5px; color:var(--ink-soft); line-height:1.45;}
+.tips .row{display:flex; gap:10px; align-items:flex-start;}
+.tips .row svg{width:18px; height:18px; color:var(--yellow); flex:none; margin-top:1px;}
+.meta-line{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-soft); margin-bottom:13px;}
+.meta-line b{color:var(--ink); font-weight:700;}
+.live{display:inline-flex; align-items:center; gap:6px; background:var(--green-tint); color:var(--green-ink);
+  font-size:11px; font-weight:700; padding:4px 9px; border-radius:999px; margin-left:auto;}
+.live i{width:7px; height:7px; border-radius:50%; background:var(--green); display:inline-block;}
+
+.foot{text-align:center; font-size:12px; color:var(--hint); margin-top:22px;}
+
+.shell{animation:rise .5s ease both}
+@keyframes rise{from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:none}}
+
+@media (max-width:860px){ .grid{grid-template-columns:1fr} }
+@media (prefers-reduced-motion:reduce){ *{animation:none!important; transition:none!important} }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="ic-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/></symbol>
+  <symbol id="ic-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3l0 7l6 0l-8 11l0 -7l-6 0l8 -11"/></symbol>
+  <symbol id="ic-flag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5a5 5 0 0 1 7 0a5 5 0 0 0 7 0v9a5 5 0 0 1 -7 0a5 5 0 0 0 -7 0v-9z"/><path d="M5 21v-7"/></symbol>
+  <symbol id="ic-star" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 17.75l-6.172 3.245l1.179 -6.873l-5 -4.867l6.9 -1l3.086 -6.253l3.086 6.253l6.9 1l-5 4.867l1.179 6.873z"/></symbol>
+  <symbol id="ic-trophy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21l8 0"/><path d="M12 17l0 4"/><path d="M7 4l10 0"/><path d="M17 4v8a5 5 0 0 1 -10 0v-8"/><path d="M5 9m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M19 9m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/></symbol>
+  <symbol id="ic-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6l6 -6"/></symbol>
+</svg>
+
+<div class="wrap shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="emblem"><svg><use href="#ic-star"/></svg></div>
+      <div class="wordmark">uma<span>·</span>race<small>overlay</small></div>
+    </div>
+    <button class="cm-select">
+      <span><span class="cap">Now playing</span>Champion Meeting 15</span>
+      <svg><use href="#ic-chevron"/></svg>
+    </button>
+  </div>
+
+  <div class="grid">
+
+    <div class="col">
+
+      <div class="card">
+        <div class="card-hd">
+          <span class="chip chip-pink"><svg><use href="#ic-star"/></svg></span>
+          <h2>Win rate &times; pick count</h2>
+          <svg class="star"><use href="#ic-star"/></svg>
+        </div>
+        <div class="plot-wrap">
+          <div class="plot">
+            <div class="axis-y"></div>
+            <div class="gl" style="top:0%"></div><span class="yl" style="top:0%">40%</span>
+            <div class="gl" style="top:25%"></div><span class="yl" style="top:25%">30%</span>
+            <div class="gl" style="top:50%"></div><span class="yl" style="top:50%">20%</span>
+            <div class="gl" style="top:75%"></div><span class="yl" style="top:75%">10%</span>
+            <div class="gl base" style="top:100%"></div><span class="yl" style="top:100%">0%</span>
+            <div class="axis-mid"></div>
+            <div class="mk gold" style="left:7.5%; top:5%;"><svg><use href="#ic-user"/></svg><span class="paid"><svg><use href="#ic-star"/></svg></span><span class="nm">Uma F &middot; 38%</span></div>
+            <div class="mk" style="left:77.5%; top:15%;"><svg><use href="#ic-user"/></svg><span class="nm">Uma A &middot; 34%</span></div>
+            <div class="mk" style="left:61%; top:30%;"><svg><use href="#ic-user"/></svg><span class="nm">Uma B &middot; 28%</span></div>
+            <div class="mk" style="left:25.6%; top:45%;"><svg><use href="#ic-user"/></svg><span class="nm">Uma D &middot; 22%</span></div>
+            <div class="mk" style="left:50%; top:62.5%;"><svg><use href="#ic-user"/></svg><span class="nm">Uma E &middot; 15%</span></div>
+            <div class="mk" style="left:95%; top:52.5%;"><svg><use href="#ic-user"/></svg><span class="nm">Uma C &middot; 19%</span></div>
+          </div>
+          <span class="xl" style="left:0">0</span>
+          <span class="xl" style="left:50%; transform:translateX(-50%)">800</span>
+          <span class="xl" style="right:14px">1600</span>
+          <span class="xtitle">pick count &rarr;</span>
+        </div>
+      </div>
+
+      <div class="card grow">
+        <div class="card-hd">
+          <span class="chip chip-pink"><svg><use href="#ic-trophy"/></svg></span>
+          <h2>Who to pick</h2>
+        </div>
+        <div class="tiers">
+          <div class="tier"><span class="tl ss">SS</span><span class="slots"><span class="pf"><svg><use href="#ic-user"/></svg></span></span></div>
+          <div class="tier"><span class="tl s">S</span><span class="slots"><span class="pf"><svg><use href="#ic-user"/></svg></span><span class="pf"><svg><use href="#ic-user"/></svg></span></span></div>
+          <div class="tier"><span class="tl a">A</span><span class="slots"><span class="pf"><svg><use href="#ic-user"/></svg></span><span class="pf"><svg><use href="#ic-user"/></svg></span><span class="pf"><svg><use href="#ic-user"/></svg></span></span></div>
+          <div class="tier"><span class="tl b">B</span><span class="slots"><span class="pf"><svg><use href="#ic-user"/></svg></span><span class="pf"><svg><use href="#ic-user"/></svg></span></span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="col">
+
+      <div class="card track-card">
+        <div class="card-hd">
+          <span class="chip chip-green"><svg><use href="#ic-flag"/></svg></span>
+          <h2>Current track</h2>
+        </div>
+        <div class="track-stage">
+          <span class="dist-badge">2000 m</span>
+          <svg viewBox="0 0 320 140" role="img" aria-label="oval turf track, 2000 meters">
+            <ellipse cx="160" cy="70" rx="142" ry="48" fill="none" stroke="#56B85A" stroke-width="13"/>
+            <ellipse cx="160" cy="70" rx="108" ry="28" fill="#DCF1D6"/>
+            <text x="160" y="77" text-anchor="middle" font-size="22" font-weight="700" fill="#2C6B2E" font-family="Fredoka, sans-serif">2000 m</text>
+            <rect x="297" y="61" width="5" height="18" rx="2" fill="#FFC83D"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd">
+          <span class="chip chip-green"><svg><use href="#ic-bolt"/></svg></span>
+          <h2>Track info</h2>
+        </div>
+        <div class="info">
+          <div class="info-row"><span class="dot"></span><span class="lbl">Surface</span><span class="val">Turf</span></div>
+          <div class="info-row"><span class="dot"></span><span class="lbl">Length</span><span class="val">2000 m &middot; Medium</span></div>
+          <div class="info-row"><span class="dot"></span><span class="lbl">Direction</span><span class="val">Right-handed</span></div>
+          <div class="info-row" style="align-items:flex-start"><span class="dot" style="margin-top:6px"></span><span class="lbl" style="margin-top:1px">Green skills</span>
+            <span class="tags"><span class="tag g">corner recovery</span><span class="tag g">final-stretch accel</span><span class="tag g">positioning</span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card grow">
+        <div class="card-hd">
+          <span class="chip chip-yellow"><svg><use href="#ic-trophy"/></svg></span>
+          <h2>This Champion Meeting</h2>
+          <span class="live"><i></i>live</span>
+        </div>
+        <div class="meta-line">Round <b>15</b> &middot; <b>2000 m turf</b> &middot; ends in <b>4 days</b></div>
+        <div class="tips">
+          <div class="row"><svg><use href="#ic-bolt"/></svg><span>Prioritize stamina &mdash; this is a long distance.</span></div>
+          <div class="row"><svg><use href="#ic-flag"/></svg><span>Skills on the second corner decide position.</span></div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <div class="foot">Placeholder data &mdash; portraits and names are stand-ins for real character assets.</div>
+
+</div>
+
+</body>
+</html>

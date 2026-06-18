@@ -12,7 +12,7 @@ pub fn state_path() -> PathBuf {
     PathBuf::from(base).join("uma_race_overlay_state.json")
 }
 
-fn json_escape(s: &str) -> String {
+pub(crate) fn json_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     for c in s.chars() {
         match c {
@@ -47,8 +47,10 @@ fn build_json() -> String {
 
     let mut s = String::with_capacity(2048);
     s.push_str(&format!(
-        "{{\"ts\":{},\"running\":{},\"ctor_age_ms\":{},\"horses\":[",
-        ts, running, ctor_age_ms
+        "{{\"ts\":{},\"running\":{},\"ctor_age_ms\":{},\"course_id\":{},\"race_track_id\":{},\"course_distance\":{},\"course_ground\":{},\"race_type\":{},\"race_instance_id\":{},\"horses\":[",
+        ts, running, ctor_age_ms,
+        race.course_id, race.race_track_id, race.course_distance,
+        race.course_ground, race.race_type, race.race_instance_id
     ));
     let mut first = true;
     for h in race.horses.values() {
@@ -67,7 +69,7 @@ fn build_json() -> String {
         skills_json.push(']');
 
         s.push_str(&format!(
-            "{{\"gate\":{},\"name\":\"{}\",\"trainer\":\"{}\",\"hp\":{:.1},\"max_hp\":{:.1},\"speed\":{:.2},\"accel\":{:.3},\"max_spurt_accel\":{:.3},\"max_spurt_speed\":{:.2},\"distance\":{:.1},\"spurt\":{},\"finished\":{},\"order\":{},\"style\":{},\"stats\":[{},{},{},{},{}],\"apt\":[{},{},{},{},{}],\"ground\":[{},{}],\"adist\":{},\"aground\":{},\"gtype\":{},\"is_user\":{},\"motiv\":{},\"pop\":{},\"stats_ready\":{},\"blocked_time\":{:.2},\"blocked_episodes\":{},\"kakari_time\":{:.2},\"finish_diff_time\":{:.3},\"blocked_lost_dist\":{:.1},\"blocked_lost_time\":{:.2},\"spurt_blocked_time\":{:.2},\"spurt_blocked_episodes\":{},\"spurt_lost_dist\":{:.1},\"spurt_lost_time\":{:.2},\"spurt_unresolved\":{},\"skills\":{}}}",
+            "{{\"gate\":{},\"name\":\"{}\",\"trainer\":\"{}\",\"hp\":{:.1},\"max_hp\":{:.1},\"speed\":{:.2},\"accel\":{:.3},\"max_spurt_accel\":{:.3},\"max_spurt_speed\":{:.2},\"distance\":{:.1},\"spurt\":{},\"finished\":{},\"order\":{},\"style\":{},\"stats\":[{},{},{},{},{}],\"apt\":[{},{},{},{},{}],\"ground\":[{},{}],\"adist\":{},\"aground\":{},\"gtype\":{},\"is_user\":{},\"motiv\":{},\"pop\":{},\"stats_ready\":{},\"blocked_time\":{:.2},\"pre_spurt_blocked_time\":{:.2},\"blocked_episodes\":{},\"kakari_time\":{:.2},\"finish_time\":{:.3},\"finish_diff_time\":{:.3},\"blocked_lost_dist\":{:.1},\"blocked_lost_time\":{:.2},\"spurt_blocked_time\":{:.2},\"spurt_blocked_episodes\":{},\"spurt_lost_dist\":{:.1},\"spurt_lost_time\":{:.2},\"spurt_unresolved\":{},\"skills\":{}}}",
             h.gate_no,
             json_escape(&h.chara_name),
             json_escape(&h.trainer_name),
@@ -104,8 +106,10 @@ fn build_json() -> String {
             h.popularity,
             h.stats_ready,
             h.blocked_time,
+            h.pre_spurt_blocked_time,
             h.blocked_episodes,
             h.kakari_time,
+            h.finish_time,
             h.finish_diff_time,
             h.blocked_lost_dist,
             h.blocked_lost_time,

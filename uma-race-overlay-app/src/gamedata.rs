@@ -85,6 +85,9 @@ pub struct GameData {
     pub ground_rate: HashMap<i32, f64>,
     /// Трассы: course_set_id -> (дистанция м, поверхность 1=турф 2=грунт).
     pub courses: HashMap<i32, (i32, i32)>,
+    /// Названия скиллов: skill_id -> текст (text_data category 47). Для подписей
+    /// в окне-реплее. Может быть на японском — в app есть CJK-фолбэк шрифтов.
+    pub skill_names: HashMap<i32, String>,
 }
 
 /// Стандартный путь master.mdb (LocalLow Cygames).
@@ -152,6 +155,7 @@ impl GameData {
             style_rate: HashMap::new(),
             ground_rate: HashMap::new(),
             courses: HashMap::new(),
+            skill_names: HashMap::new(),
         };
 
         // --- таблицы коэффициентов (значения в БД — десятитысячные доли) ---
@@ -276,7 +280,37 @@ impl GameData {
             }
         }
 
+        // --- названия скиллов (text_data category 47, index = skill_id) ---
+        // Опционально: если таблицы/строк нет — подписи упадут на "#id".
+        if let Ok(mut st) =
+            conn.prepare("select \"index\", text from text_data where category = 47")
+        {
+            if let Ok(mut rows) = st.query([]) {
+                while let Ok(Some(r)) = rows.next() {
+                    if let (Ok(id), Ok(name)) = (r.get::<_, i32>(0), r.get::<_, String>(1)) {
+                        gd.skill_names.insert(id, name);
+                    }
+                }
+            }
+        }
+
         Some(gd)
+    }
+
+    /// Имя скилла по id для подписи. Точное → базовый id (варианты вроде 2000x2
+    /// делят имя с базой: последняя цифра — ранг) → "#id".
+    pub fn skill_name(&self, id: i32) -> String {
+        if let Some(n) = self.skill_names.get(&id) {
+            return n.clone();
+        }
+        // Варианты白/金 скиллов: id = base*10 + rank. Пробуем базовый id.
+        let base = id / 10;
+        if base > 0 {
+            if let Some(n) = self.skill_names.get(&base) {
+                return n.clone();
+            }
+        }
+        format!("#{id}")
     }
 
     /// Значение эффекта с учётом уровня скилла.

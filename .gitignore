@@ -17,6 +17,29 @@ winhttp.dll
 UmaRaceOverlay-RELEASE/
 UmaRaceOverlay-KEEP/
 
+# ── Секреты фидбэка (НЕ в публичный репо!) ──
+# Клиент: relay_url/relay_key вшивает build.rs. Worker: токен бота + chat_id +
+# app-key + ip-salt вводятся через `wrangler secret put`, локальная шпаргалка ниже.
+feedback_creds.txt
+**/feedback_creds.txt
+feedback-relay/secrets.local.txt
+**/secrets.local.txt
+
+# ── Геометрия трасс (dev-only, GPLv3-источник uma-skill-tools) ──
+# Используется ЛОКАЛЬНО для разработки/валидации accel-тайминга. В MIT-релиз НЕ
+# бандлим (конфликт лицензий) — для раздачи генерируем свою копию из игры.
+uma-race-overlay-app/data/course_data.json
+
+# ── BMAD-Method (инструмент разработки, не часть мода) ──
+_bmad/
+_bmad-output/
+.claude/skills/
+
+# ── Dev-only заметки и бэкапы (не часть публичного мода) ──
+скилы клода/
+investigations/
+uma-race-overlay-app/design_backup_pre_pastel/
+
 # ── Прочее ──
 Thumbs.db
 .DS_Store

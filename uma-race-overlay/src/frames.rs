@@ -25,10 +25,15 @@ use crate::il2cpp::{self, RawPtr};
 pub struct Accum {
     /// Финишное место по данным симуляции (для валидации маппинга idx→gate).
     pub finish_order: i32,
-    /// Отрыв до победителя (сек).
+    /// Абсолютное финишное время (сек) — для контрфактуального ранжирования.
+    pub finish_time: f32,
+    /// ВНИМАНИЕ: это `FinishDiffTime` = отрыв до лошади на ОДНО МЕСТО впереди
+    /// (margin), а НЕ до победителя. Для ранжирования использовать `finish_time`.
     pub finish_diff_time: f32,
     /// Суммарное время во фронт-блоке (сек).
     pub blocked_time: f32,
+    /// Суммарное время во фронт-блоке ДО начала спурта (сек), «mid leg block».
+    pub pre_spurt_blocked_time: f32,
     /// Число отдельных эпизодов блока.
     pub episodes: i32,
     /// Время в закидывании (掛かり), сек.
@@ -102,6 +107,7 @@ pub fn compute(reader: RawPtr) -> Vec<Accum> {
                 continue;
             }
             acc[idx].finish_order = il2cpp::read_field(r, 0x10);
+            acc[idx].finish_time = il2cpp::read_field(r, 0x14);
             acc[idx].finish_diff_time = il2cpp::read_field(r, 0x1c);
             // LastSpurtStartDistance(+0x28): тип точно не известен — пробуем как
             // f32 и i32, берём то, что попадает в разумный диапазон дистанции.
@@ -180,6 +186,9 @@ pub fn compute(reader: RawPtr) -> Vec<Accum> {
                 // Полный блок (любая фаза) — для справки.
                 if is_blocked {
                     acc[idx].blocked_time += dt;
+                    if !in_spurt {
+                        acc[idx].pre_spurt_blocked_time += dt;
+                    }
                     if !blocked_prev[idx] {
                         acc[idx].episodes += 1;
                         vref[idx] = prev_speed[idx].max(speed);
@@ -240,5 +249,211 @@ pub fn compute(reader: RawPtr) -> Vec<Accum> {
             }
         }
         acc
+    }
+}
+
+/// Покадровый таймлайн ВСЕЙ гонки (для архива/реверса): времена кадров + по каждой
+/// лошади столбцы d/v/hp/lane/block/temp. Индекс лошади = индекс в кадровом массиве
+/// (= gate-1). None — данные не прочитались.
+pub struct HorseTrack {
+    pub d: Vec<f32>,
+    pub v: Vec<f32>,
+    pub hp: Vec<f32>,
+    pub lane: Vec<f32>,
+    pub block: Vec<u8>,
+    pub temp: Vec<u8>,
+}
+
+/// Настоящая активация скилла из игры (_simEvDataList). Индекс лошади — тот же
+/// индекс кадрового массива, что и у таймлайна (= gate-1).
+pub struct SkillEvent {
+    pub horse: usize,
+    pub time: f32,
+    pub skill_id: i32,
+}
+
+/// Контест-событие из `_simEvDataList`: type==4 Spot Struggle (位置取り争い,
+/// фронт-раннеры рубятся за позицию в начале), type==5 Dueling (追い比べ, дуэль
+/// на финишной прямой). param[0] = индекс лошади-участника; событие на КАЖДОГО
+/// участника в один и тот же момент → партнёров группируем по времени.
+pub struct ContestEvent {
+    pub horse: usize,
+    pub time: f32,
+    /// 4 = Spot Struggle, 5 = Dueling.
+    pub kind: u8,
+}
+
+pub struct Timeline {
+    pub times: Vec<f32>,
+    pub horses: Vec<HorseTrack>,
+    /// Настоящие активации скиллов (ground truth). Пусто — событий не было/не прочлось.
+    pub events: Vec<SkillEvent>,
+    /// Контесты (Spot Struggle / Dueling) — ground truth из событий движка.
+    pub contests: Vec<ContestEvent>,
+}
+
+/// Читает реальные активации скиллов из `_simData._simEvDataList` (+0x28).
+/// Раскладка события (RaceSimulateEventData): frameTime(f32)@0x10, type(i32)@0x14,
+/// param(int[])@0x18. type==3 + param[2]!=-1 = активация: param=[horseIdx, skillId,
+/// duration, 0, 1<<idx]. t=0 с param[2]==-1 — пред-стартовая регистрация скиллов
+/// (НЕ активация), пропускаем.
+fn collect_skill_events(sim: RawPtr, nh: usize) -> Vec<SkillEvent> {
+    let mut out = Vec::new();
+    unsafe {
+        let ev_list: RawPtr = il2cpp::read_field(sim, 0x28);
+        if ev_list.is_null() {
+            return out;
+        }
+        let items: RawPtr = il2cpp::read_field(ev_list, 0x10);
+        let n = il2cpp::array_length(items);
+        for k in 0..n {
+            let ev = il2cpp::array_get_ref(items, k);
+            if ev.is_null() {
+                continue;
+            }
+            let ty: i32 = il2cpp::read_field(ev, 0x14);
+            if ty != 3 {
+                continue;
+            }
+            let param: RawPtr = il2cpp::read_field(ev, 0x18);
+            if il2cpp::array_length(param) < 3 {
+                continue;
+            }
+            let horse: i32 = il2cpp::read_field(param, 0x20);
+            let skill_id: i32 = il2cpp::read_field(param, 0x24);
+            let dur: i32 = il2cpp::read_field(param, 0x28);
+            // pre-race регистрация (dur==-1) — не активация.
+            if dur < 0 {
+                continue;
+            }
+            if horse < 0 || horse as usize >= nh || skill_id <= 0 {
+                continue;
+            }
+            let time: f32 = il2cpp::read_field(ev, 0x10);
+            out.push(SkillEvent { horse: horse as usize, time, skill_id });
+        }
+    }
+    out
+}
+
+/// Контесты из `_simEvDataList`: type==4 Spot Struggle, type==5 Dueling. У них
+/// param длиной 1 — param[0] = индекс лошади-участника (тот же sim-индекс, что у
+/// таймлайна = gate-1). На каждого участника эмитится отдельное событие в один и
+/// тот же `frameTime`. Подтверждено реальной гонкой: type 4 @≈7.86s для двух nige
+/// в 2.6 м друг от друга (Spot Struggle), type 5 на финишной прямой (Dueling).
+fn collect_contest_events(sim: RawPtr, nh: usize) -> Vec<ContestEvent> {
+    let mut out = Vec::new();
+    unsafe {
+        let ev_list: RawPtr = il2cpp::read_field(sim, 0x28);
+        if ev_list.is_null() {
+            return out;
+        }
+        let items: RawPtr = il2cpp::read_field(ev_list, 0x10);
+        let n = il2cpp::array_length(items);
+        for k in 0..n {
+            let ev = il2cpp::array_get_ref(items, k);
+            if ev.is_null() {
+                continue;
+            }
+            let ty: i32 = il2cpp::read_field(ev, 0x14);
+            if ty != 4 && ty != 5 {
+                continue;
+            }
+            let param: RawPtr = il2cpp::read_field(ev, 0x18);
+            if il2cpp::array_length(param) < 1 {
+                continue;
+            }
+            let horse: i32 = il2cpp::read_field(param, 0x20);
+            if horse < 0 || horse as usize >= nh {
+                continue;
+            }
+            let time: f32 = il2cpp::read_field(ev, 0x10);
+            out.push(ContestEvent { horse: horse as usize, time, kind: ty as u8 });
+        }
+    }
+    out
+}
+
+pub fn collect_timeline(reader: RawPtr) -> Option<Timeline> {
+    if reader.is_null() {
+        return None;
+    }
+    unsafe {
+        let sim: RawPtr = il2cpp::read_field(reader, 0x10);
+        if sim.is_null() {
+            return None;
+        }
+        let list: RawPtr = il2cpp::read_field(sim, 0x18);
+        if list.is_null() {
+            return None;
+        }
+        let frames: RawPtr = il2cpp::read_field(list, 0x10);
+        let nframes = il2cpp::array_length(frames);
+        if nframes == 0 {
+            return None;
+        }
+        let frame0 = il2cpp::array_get_ref(frames, 0);
+        if frame0.is_null() {
+            return None;
+        }
+        let harr0: RawPtr = il2cpp::read_field(frame0, 0x18);
+        let nh = il2cpp::array_length(harr0);
+        if nh == 0 {
+            return None;
+        }
+        let hcls = il2cpp::array_element_class(harr0);
+        let is_vt = il2cpp::is_valuetype(hcls);
+        let stride = il2cpp::array_element_size(harr0);
+        let adj: usize = if is_vt { 0x10 } else { 0 };
+
+        let mut times = Vec::with_capacity(nframes);
+        let mut horses: Vec<HorseTrack> = (0..nh)
+            .map(|_| HorseTrack {
+                d: Vec::with_capacity(nframes),
+                v: Vec::with_capacity(nframes),
+                hp: Vec::with_capacity(nframes),
+                lane: Vec::with_capacity(nframes),
+                block: Vec::with_capacity(nframes),
+                temp: Vec::with_capacity(nframes),
+            })
+            .collect();
+
+        for f in 0..nframes {
+            let frame = il2cpp::array_get_ref(frames, f);
+            if frame.is_null() {
+                continue;
+            }
+            let time: f32 = il2cpp::read_field(frame, 0x10);
+            times.push(time);
+            let harr: RawPtr = il2cpp::read_field(frame, 0x18);
+            let cnt = if harr.is_null() { 0 } else { il2cpp::array_length(harr).min(nh) };
+            for idx in 0..nh {
+                let t = &mut horses[idx];
+                let base = if idx < cnt {
+                    il2cpp::array_elem_base(harr, idx, stride, is_vt)
+                } else {
+                    std::ptr::null_mut()
+                };
+                if base.is_null() {
+                    // выравниваем длины столбцов с times
+                    t.d.push(f32::NAN);
+                    t.v.push(f32::NAN);
+                    t.hp.push(f32::NAN);
+                    t.lane.push(f32::NAN);
+                    t.block.push(0xFF);
+                    t.temp.push(0);
+                    continue;
+                }
+                t.d.push(il2cpp::read_field(base, 0x10 - adj));
+                t.lane.push(il2cpp::read_field(base, 0x14 - adj));
+                t.v.push(il2cpp::read_field(base, 0x18 - adj));
+                t.hp.push(il2cpp::read_field(base, 0x1c - adj));
+                t.temp.push(il2cpp::read_field(base, 0x20 - adj));
+                t.block.push(il2cpp::read_field(base, 0x21 - adj));
+            }
+        }
+        let events = collect_skill_events(sim, nh);
+        let contests = collect_contest_events(sim, nh);
+        Some(Timeline { times, horses, events, contests })
     }
 }
